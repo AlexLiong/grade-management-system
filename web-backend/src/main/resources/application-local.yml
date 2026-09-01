@@ -1,0 +1,17 @@
+server:
+  port: ${WEB_PORT:8443}
+  ssl:
+    enabled: true
+    key-store: ${TLS_KEYSTORE}
+    key-store-password: ${TLS_KEYSTORE_PASSWORD}
+    key-store-type: PKCS12
+  servlet:
+    session:
+      cookie:
+        secure: true
+
+app:
+  allowed-origins:
+    - https://localhost:5173
+    - https://127.0.0.1:5173
+

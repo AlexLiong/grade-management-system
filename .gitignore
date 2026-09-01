@@ -1,0 +1,16 @@
+.idea/
+*.iml
+.vscode/
+
+.DS_Store
+**/target/
+
+web-frontend/node_modules/
+web-frontend/dist/
+
+runtime/
+*.log
+.env
+*.p12
+*.jks
+
