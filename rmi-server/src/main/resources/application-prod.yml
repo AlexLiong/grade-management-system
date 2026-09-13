@@ -1,8 +1,0 @@
-rmi:
-  tls-enabled: true
-  tls-required: true
-
-spring:
-  sql:
-    init:
-      mode: never

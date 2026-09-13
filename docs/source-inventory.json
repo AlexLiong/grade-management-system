@@ -1,0 +1,622 @@
+[
+  {
+    "name": "AuditApplication",
+    "package": "edu.campus.audit",
+    "kind": "CLASS",
+    "file": "audit-service/src/main/java/edu/campus/audit/AuditApplication.java",
+    "fields": [],
+    "methods": [
+      "main(String[] args) : void"
+    ]
+  },
+  {
+    "name": "AuditController",
+    "package": "edu.campus.audit",
+    "kind": "CLASS",
+    "file": "audit-service/src/main/java/edu/campus/audit/AuditController.java",
+    "fields": [
+      "ledger : LedgerService"
+    ],
+    "methods": [
+      "<init>(LedgerService ledger) : constructor",
+      "append(Protocol.AuditEvent event) : Map<String, Object>",
+      "check() : Map<String, Object>",
+      "ledger() : Map<String, Object>",
+      "classify() : Map<String, Object>"
+    ]
+  },
+  {
+    "name": "LedgerService",
+    "package": "edu.campus.audit",
+    "kind": "CLASS",
+    "file": "audit-service/src/main/java/edu/campus/audit/LedgerService.java",
+    "fields": [
+      "file : Path",
+      "chain : RpcClient"
+    ],
+    "methods": [
+      "<init>() : constructor",
+      "verify() : List<Block>",
+      "decode(Block b) : Protocol.AuditEvent",
+      "append(Protocol.AuditEvent event) : Map<String, Object>",
+      "read() : Map<String, Object>",
+      "classify() : Map<String, Object>"
+    ]
+  },
+  {
+    "name": "LedgerService.Block",
+    "package": "edu.campus.audit",
+    "kind": "RECORD",
+    "file": "audit-service/src/main/java/edu/campus/audit/LedgerService.java",
+    "fields": [
+      "index : long",
+      "previous : String",
+      "ciphertext : String",
+      "hash : String",
+      "signature : String",
+      "transaction : String"
+    ],
+    "methods": []
+  },
+  {
+    "name": "AdminService",
+    "package": "edu.campus.business",
+    "kind": "CLASS",
+    "file": "business-service/src/main/java/edu/campus/business/AdminService.java",
+    "fields": [
+      "repo : RemoteRepository",
+      "DEMO_USERNAMES : Set<String>"
+    ],
+    "methods": [
+      "<init>(RemoteRepository repo) : constructor",
+      "users(Models.User u) : List<Map<String, Object>>",
+      "saveUser(Models.User u, Map<String, Object> b) : void",
+      "integrity(Models.User u) : Map<String, Object>",
+      "review(Models.User u, Map<String, Object> b) : void",
+      "demoPassword(String username) : Optional<String>"
+    ]
+  },
+  {
+    "name": "AnalyticsService",
+    "package": "edu.campus.business",
+    "kind": "CLASS",
+    "file": "business-service/src/main/java/edu/campus/business/AnalyticsService.java",
+    "fields": [
+      "repo : RemoteRepository",
+      "courses : CourseService"
+    ],
+    "methods": [
+      "<init>(RemoteRepository repo, CourseService courses) : constructor",
+      "anomalies(String id) : List<Map<String, Object>>",
+      "statistics(Models.User u, String id) : Map<String, Object>",
+      "analysis(Models.User u, Map<String, Object> b) : void",
+      "predict(Models.User u, String id) : Map<String, Object>",
+      "clamp(double x) : double",
+      "instances(List<double[]> samples) : Instances",
+      "instance(Instances data, double regular, double lab) : Instance"
+    ]
+  },
+  {
+    "name": "ApiController",
+    "package": "edu.campus.business",
+    "kind": "CLASS",
+    "file": "business-service/src/main/java/edu/campus/business/ApiController.java",
+    "fields": [
+      "auth : AuthService",
+      "courses : CourseService",
+      "grades : GradeService",
+      "analytics : AnalyticsService",
+      "admin : AdminService",
+      "repo : RemoteRepository"
+    ],
+    "methods": [
+      "<init>(AuthService auth, CourseService courses, GradeService grades, AnalyticsService analytics, AdminService admin, RemoteRepository repo) : constructor",
+      "dispatch(Map<String, String> envelope, HttpServletRequest request, HttpServletResponse response) : Object",
+      "page(List<Map<String, Object>> all, Map<String, String> query) : Map<String, Object>"
+    ]
+  },
+  {
+    "name": "AuthService",
+    "package": "edu.campus.business",
+    "kind": "CLASS",
+    "file": "business-service/src/main/java/edu/campus/business/AuthService.java",
+    "fields": [
+      "PASSWORDS : BCryptPasswordEncoder",
+      "repo : RemoteRepository"
+    ],
+    "methods": [
+      "<init>(RemoteRepository repo) : constructor",
+      "login(Map<String, Object> body, HttpServletRequest request, HttpServletResponse response) : Map<String, Object>",
+      "authenticate(HttpServletRequest request, boolean mutation) : Models.User",
+      "logout(HttpServletRequest request, HttpServletResponse response, Models.User u) : void",
+      "changePassword(Models.User u, Map<String, Object> body) : void",
+      "validatePassword(String p) : void",
+      "demoValidatePassword(String p) : void",
+      "cookie(HttpServletRequest r, String name) : String",
+      "cookie(HttpServletResponse r, String name, String value, boolean httpOnly, long age) : void"
+    ]
+  },
+  {
+    "name": "BusinessApplication",
+    "package": "edu.campus.business",
+    "kind": "CLASS",
+    "file": "business-service/src/main/java/edu/campus/business/BusinessApplication.java",
+    "fields": [],
+    "methods": [
+      "main(String[] args) : void"
+    ]
+  },
+  {
+    "name": "CourseService",
+    "package": "edu.campus.business",
+    "kind": "CLASS",
+    "file": "business-service/src/main/java/edu/campus/business/CourseService.java",
+    "fields": [
+      "repo : RemoteRepository"
+    ],
+    "methods": [
+      "<init>(RemoteRepository repo) : constructor",
+      "access(Models.User user, String id, String permission) : Map<String, Object>",
+      "list(Models.User u) : List<Map<String, Object>>",
+      "roster(Models.User u, String id) : List<Map<String, Object>>",
+      "weights(Models.User u, Map<String, Object> body) : void",
+      "saveCourse(Models.User u, Map<String, Object> b) : void",
+      "enroll(Models.User u, Map<String, Object> b) : void",
+      "defaultWeights() : Map<String, Object>"
+    ]
+  },
+  {
+    "name": "DemoSeeder",
+    "package": "edu.campus.business",
+    "kind": "CLASS",
+    "file": "business-service/src/main/java/edu/campus/business/DemoSeeder.java",
+    "fields": [
+      "repo : RemoteRepository",
+      "done : boolean"
+    ],
+    "methods": [
+      "<init>(RemoteRepository repo) : constructor",
+      "seed() : void",
+      "addUser(List<Protocol.Operation> ops, String id, String username, String name, String role, String password) : void"
+    ]
+  },
+  {
+    "name": "GradeService",
+    "package": "edu.campus.business",
+    "kind": "CLASS",
+    "file": "business-service/src/main/java/edu/campus/business/GradeService.java",
+    "fields": [
+      "repo : RemoteRepository",
+      "courses : CourseService",
+      "analytics : AnalyticsService"
+    ],
+    "methods": [
+      "<init>(RemoteRepository repo, CourseService courses, AnalyticsService analytics) : constructor",
+      "list(Models.User u, String courseId) : List<Map<String, Object>>",
+      "save(Models.User u, Map<String, Object> b) : Map<String, Object>",
+      "validateScores(Map<String, Object> s, Map<String, Object> weights, boolean complete) : void",
+      "transition(Models.User u, Map<String, Object> b) : void",
+      "transcript(Models.User u) : List<Map<String, Object>>"
+    ]
+  },
+  {
+    "name": "Models",
+    "package": "edu.campus.business",
+    "kind": "CLASS",
+    "file": "business-service/src/main/java/edu/campus/business/Models.java",
+    "fields": [
+      "COMPONENTS : List<String>",
+      "PERMISSIONS : Map<String, Set<String>>"
+    ],
+    "methods": [
+      "<init>() : constructor",
+      "integer(Object x) : int",
+      "number(Object x) : double",
+      "object(Object value) : Map<String, Object>",
+      "text(Map<String, Object> m, String key, int max) : String",
+      "publicUser(Map<String, Object> user) : Map<String, Object>",
+      "grade(Map<String, Object> row) : Map<String, Object>",
+      "total(Map<String, Object> scores, Map<String, Object> weights) : Double",
+      "effective(Map<String, Object> scores, Map<String, Object> weights) : Double"
+    ]
+  },
+  {
+    "name": "Models.User",
+    "package": "edu.campus.business",
+    "kind": "RECORD",
+    "file": "business-service/src/main/java/edu/campus/business/Models.java",
+    "fields": [
+      "id : String",
+      "username : String",
+      "name : String",
+      "role : String",
+      "permissions : Set<String>",
+      "version : int"
+    ],
+    "methods": [
+      "require(String permission) : void"
+    ]
+  },
+  {
+    "name": "RemoteRepository",
+    "package": "edu.campus.business",
+    "kind": "CLASS",
+    "file": "business-service/src/main/java/edu/campus/business/RemoteRepository.java",
+    "fields": [
+      "rpc : RpcClient",
+      "FIELDS : Map<String, List<String>>"
+    ],
+    "methods": [
+      "find(String table, Map<String, Object> where) : List<Map<String, Object>>",
+      "one(String table, String id) : Map<String, Object>",
+      "mutate(List<Protocol.Operation> ops, String actor, String action, String resource) : void",
+      "insert(String table, Map<String, Object> data) : Protocol.Operation",
+      "update(String table, String id, Map<String, Object> values, Object version) : Protocol.Operation",
+      "delete(String table, String id, Object version) : Protocol.Operation",
+      "status() : Map<String, Object>",
+      "ledger() : Map<String, Object>",
+      "logModel() : Map<String, Object>",
+      "securityEvent(String actor, String action, String resource) : void"
+    ]
+  },
+  {
+    "name": "ApiException",
+    "package": "edu.campus.common",
+    "kind": "CLASS",
+    "file": "common/src/main/java/edu/campus/common/ApiException.java",
+    "fields": [
+      "status : int",
+      "code : String"
+    ],
+    "methods": [
+      "<init>(int status, String code, String message) : constructor",
+      "require(boolean ok, int status, String message) : void"
+    ]
+  },
+  {
+    "name": "Crypto",
+    "package": "edu.campus.common",
+    "kind": "CLASS",
+    "file": "common/src/main/java/edu/campus/common/Crypto.java",
+    "fields": [],
+    "methods": [
+      "<init>() : constructor",
+      "random() : String",
+      "hash(String text) : String",
+      "hmac(String key, String text) : String",
+      "equal(String a, String b) : boolean",
+      "encrypt(String key, String aad, String plain) : String",
+      "decrypt(String key, String aad, String cipher) : String"
+    ]
+  },
+  {
+    "name": "ErrorAdvice",
+    "package": "edu.campus.common",
+    "kind": "CLASS",
+    "file": "common/src/main/java/edu/campus/common/ErrorAdvice.java",
+    "fields": [],
+    "methods": [
+      "missing(Exception e) : ResponseEntity<?>",
+      "api(ApiException e) : ResponseEntity<?>",
+      "invalid(Exception e) : ResponseEntity<?>",
+      "other(Exception e) : ResponseEntity<?>"
+    ]
+  },
+  {
+    "name": "InternalSecurity",
+    "package": "edu.campus.common",
+    "kind": "CLASS",
+    "file": "common/src/main/java/edu/campus/common/InternalSecurity.java",
+    "fields": [
+      "nonces : Map<String, Long>"
+    ],
+    "methods": [
+      "shouldNotFilter(HttpServletRequest r) : boolean",
+      "doFilterInternal(HttpServletRequest r, HttpServletResponse s, FilterChain chain) : void"
+    ]
+  },
+  {
+    "name": "Protocol",
+    "package": "edu.campus.common",
+    "kind": "CLASS",
+    "file": "common/src/main/java/edu/campus/common/Protocol.java",
+    "fields": [],
+    "methods": [
+      "<init>() : constructor"
+    ]
+  },
+  {
+    "name": "Protocol.Selection",
+    "package": "edu.campus.common",
+    "kind": "RECORD",
+    "file": "common/src/main/java/edu/campus/common/Protocol.java",
+    "fields": [
+      "table : String",
+      "fields : List<String>",
+      "where : Map<String, Object>",
+      "orderBy : String",
+      "offset : int",
+      "limit : int"
+    ],
+    "methods": []
+  },
+  {
+    "name": "Protocol.Operation",
+    "package": "edu.campus.common",
+    "kind": "RECORD",
+    "file": "common/src/main/java/edu/campus/common/Protocol.java",
+    "fields": [
+      "type : String",
+      "table : String",
+      "values : Map<String, Object>",
+      "where : Map<String, Object>",
+      "expectedCount : Integer"
+    ],
+    "methods": []
+  },
+  {
+    "name": "Protocol.Mutation",
+    "package": "edu.campus.common",
+    "kind": "RECORD",
+    "file": "common/src/main/java/edu/campus/common/Protocol.java",
+    "fields": [
+      "operations : List<Operation>",
+      "actor : String",
+      "action : String",
+      "resource : String",
+      "requestId : String"
+    ],
+    "methods": []
+  },
+  {
+    "name": "Protocol.Registration",
+    "package": "edu.campus.common",
+    "kind": "RECORD",
+    "file": "common/src/main/java/edu/campus/common/Protocol.java",
+    "fields": [
+      "service : String",
+      "instance : String",
+      "url : String"
+    ],
+    "methods": []
+  },
+  {
+    "name": "Protocol.AuditEvent",
+    "package": "edu.campus.common",
+    "kind": "RECORD",
+    "file": "common/src/main/java/edu/campus/common/Protocol.java",
+    "fields": [
+      "id : String",
+      "actor : String",
+      "action : String",
+      "resource : String",
+      "time : String",
+      "changes : List<Map<String, Object>>"
+    ],
+    "methods": []
+  },
+  {
+    "name": "Protocol.SelectInterface",
+    "package": "edu.campus.common",
+    "kind": "INTERFACE",
+    "file": "common/src/main/java/edu/campus/common/Protocol.java",
+    "fields": [],
+    "methods": [
+      "select(Selection selection) : String[][]"
+    ]
+  },
+  {
+    "name": "Protocol.ManipulationInterface",
+    "package": "edu.campus.common",
+    "kind": "INTERFACE",
+    "file": "common/src/main/java/edu/campus/common/Protocol.java",
+    "fields": [],
+    "methods": [
+      "manipulate(Mutation mutation) : boolean"
+    ]
+  },
+  {
+    "name": "RpcClient",
+    "package": "edu.campus.common",
+    "kind": "CLASS",
+    "file": "common/src/main/java/edu/campus/common/RpcClient.java",
+    "fields": [
+      "caller : String",
+      "client : HttpClient"
+    ],
+    "methods": [
+      "<init>(String caller) : constructor",
+      "raw(String url, String method, String body, Map<String, String> extra) : HttpResponse<String>",
+      "postUrl(String url, Object data, Class<T> type) : T",
+      "discover(String service) : String",
+      "post(String service, String path, Object data, Class<T> type) : T"
+    ]
+  },
+  {
+    "name": "ServiceHeartbeat",
+    "package": "edu.campus.common",
+    "kind": "CLASS",
+    "file": "common/src/main/java/edu/campus/common/ServiceHeartbeat.java",
+    "fields": [
+      "port : int",
+      "id : String"
+    ],
+    "methods": [
+      "beat() : void"
+    ]
+  },
+  {
+    "name": "Settings",
+    "package": "edu.campus.common",
+    "kind": "CLASS",
+    "file": "common/src/main/java/edu/campus/common/Settings.java",
+    "fields": [
+      "JSON : ObjectMapper"
+    ],
+    "methods": [
+      "<init>() : constructor",
+      "get(String key) : String",
+      "root() : Path",
+      "json(Object value) : String"
+    ]
+  },
+  {
+    "name": "DataApplication",
+    "package": "edu.campus.data",
+    "kind": "CLASS",
+    "file": "data-service/src/main/java/edu/campus/data/DataApplication.java",
+    "fields": [],
+    "methods": [
+      "main(String[] args) : void"
+    ]
+  },
+  {
+    "name": "DataRpcController",
+    "package": "edu.campus.data",
+    "kind": "CLASS",
+    "file": "data-service/src/main/java/edu/campus/data/DataRpcController.java",
+    "fields": [
+      "service : TransactionService"
+    ],
+    "methods": [
+      "<init>(TransactionService service) : constructor",
+      "select(Protocol.Selection s) : String[][]",
+      "manipulate(Protocol.Mutation m) : boolean",
+      "status() : Map<String, Object>"
+    ]
+  },
+  {
+    "name": "SchemaCatalog",
+    "package": "edu.campus.data",
+    "kind": "CLASS",
+    "file": "data-service/src/main/java/edu/campus/data/SchemaCatalog.java",
+    "fields": [
+      "tables : Map<String, LinkedHashMap<String, String>>",
+      "jdbc : JdbcTemplate"
+    ],
+    "methods": [
+      "<init>(JdbcTemplate jdbc) : constructor",
+      "add(String table, String fields) : void",
+      "columns(String table) : LinkedHashMap<String, String>",
+      "init() : void",
+      "index(String name, String target) : void"
+    ]
+  },
+  {
+    "name": "SqlCompiler",
+    "package": "edu.campus.data",
+    "kind": "CLASS",
+    "file": "data-service/src/main/java/edu/campus/data/SqlCompiler.java",
+    "fields": [
+      "catalog : SchemaCatalog"
+    ],
+    "methods": [
+      "<init>(SchemaCatalog catalog) : constructor",
+      "value(String table, String field, Object value) : Object",
+      "where(String table, Map<String, Object> where, List<Object> args) : String",
+      "select(Protocol.Selection s) : Statement",
+      "mutate(Protocol.Operation op) : Statement"
+    ]
+  },
+  {
+    "name": "SqlCompiler.Statement",
+    "package": "edu.campus.data",
+    "kind": "RECORD",
+    "file": "data-service/src/main/java/edu/campus/data/SqlCompiler.java",
+    "fields": [
+      "sql : String",
+      "parameters : List<Object>"
+    ],
+    "methods": []
+  },
+  {
+    "name": "TransactionService",
+    "package": "edu.campus.data",
+    "kind": "CLASS",
+    "file": "data-service/src/main/java/edu/campus/data/TransactionService.java",
+    "fields": [
+      "jdbc : JdbcTemplate",
+      "compiler : SqlCompiler",
+      "catalog : SchemaCatalog",
+      "tx : TransactionTemplate",
+      "audit : RpcClient"
+    ],
+    "methods": [
+      "<init>(JdbcTemplate jdbc, SqlCompiler compiler, SchemaCatalog catalog, PlatformTransactionManager manager) : constructor",
+      "select(Protocol.Selection s) : String[][]",
+      "row(String table, Object id) : Map<String, Object>",
+      "manipulate(Protocol.Mutation m) : boolean",
+      "flush() : void",
+      "status() : Map<String, Object>"
+    ]
+  },
+  {
+    "name": "GatewayApplication",
+    "package": "edu.campus.gateway",
+    "kind": "CLASS",
+    "file": "gateway/src/main/java/edu/campus/gateway/GatewayApplication.java",
+    "fields": [],
+    "methods": [
+      "main(String[] args) : void"
+    ]
+  },
+  {
+    "name": "GatewayController",
+    "package": "edu.campus.gateway",
+    "kind": "CLASS",
+    "file": "gateway/src/main/java/edu/campus/gateway/GatewayController.java",
+    "fields": [
+      "registry : RegistryController",
+      "rpc : RpcClient"
+    ],
+    "methods": [
+      "<init>(RegistryController registry) : constructor",
+      "proxy(HttpServletRequest request, HttpServletResponse response) : void"
+    ]
+  },
+  {
+    "name": "RegistryController",
+    "package": "edu.campus.gateway",
+    "kind": "CLASS",
+    "file": "gateway/src/main/java/edu/campus/gateway/RegistryController.java",
+    "fields": [
+      "entries : Map<String, Entry>",
+      "cursor : AtomicInteger"
+    ],
+    "methods": [
+      "register(Protocol.Registration r, String caller) : boolean",
+      "discover(Map<String, String> r) : Map<String, String>",
+      "choose(String name) : String",
+      "health() : Map<String, Object>"
+    ]
+  },
+  {
+    "name": "RegistryController.Entry",
+    "package": "edu.campus.gateway",
+    "kind": "RECORD",
+    "file": "gateway/src/main/java/edu/campus/gateway/RegistryController.java",
+    "fields": [
+      "registration : Protocol.Registration",
+      "seen : long"
+    ],
+    "methods": []
+  },
+  {
+    "name": "WebConfiguration",
+    "package": "edu.campus.gateway",
+    "kind": "CLASS",
+    "file": "gateway/src/main/java/edu/campus/gateway/WebConfiguration.java",
+    "fields": [],
+    "methods": []
+  },
+  {
+    "name": "WebConfiguration.Headers",
+    "package": "edu.campus.gateway",
+    "kind": "CLASS",
+    "file": "gateway/src/main/java/edu/campus/gateway/WebConfiguration.java",
+    "fields": [],
+    "methods": [
+      "doFilterInternal(HttpServletRequest r, HttpServletResponse s, FilterChain chain) : void"
+    ]
+  }
+]

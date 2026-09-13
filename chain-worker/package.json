@@ -1,0 +1,12 @@
+{
+  "name": "campus-chain-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "@tensorflow/tfjs": "4.22.0",
+    "ganache": "7.9.2"
+  }
+}

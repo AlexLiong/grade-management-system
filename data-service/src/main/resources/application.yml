@@ -1,0 +1,26 @@
+server:
+  port: ${DATA_SERVICE_PORT:9442}
+  address: ${BIND_ADDRESS:127.0.0.1}
+  ssl:
+    enabled: true
+    key-store: ./.runtime/localhost.p12
+    key-store-password: ${TLS_PASSWORD:campus-dev-tls-2024}
+    key-store-type: PKCS12
+  error:
+    include-message: never
+    include-binding-errors: never
+
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:h2:file:./.runtime/database/campus;AUTO_SERVER=TRUE}
+    username: ${DB_USER:sa}
+    password: ${DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: 8
+campus:
+  GATEWAY_URL: ${GATEWAY_URL:https://localhost:8443}
+  AUDIT_KEY: ${AUDIT_KEY:KEY}
+  LEDGER_KEY: ${LEDGER_KEY:KEY}
+  AUDIT_DATA_KEY: ${AUDIT_DATA_KEY:KEY}
+  DATA_KEY: ${DATA_KEY:KEY}
+  BUSINESS_KEY: ${BUSINESS_KEY:KEY}

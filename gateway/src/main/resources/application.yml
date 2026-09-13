@@ -1,0 +1,26 @@
+server:
+  port: ${GATEWAY_PORT:8443}
+  address: ${BIND_ADDRESS:127.0.0.1}
+  ssl:
+    enabled: true
+    key-store: ./.runtime/localhost.p12
+    key-store-password: ${TLS_PASSWORD:campus-dev-tls-2024}
+    key-store-type: PKCS12
+  error:
+    include-message: never
+    include-binding-errors: never
+  tomcat:
+    max-http-form-post-size: 1MB
+
+campus:
+  gateway-url: 127.0.0.1:8443
+  GATEWAY_KEY: ${GATEWAY_KEY:KEY}
+  TLS_PASSWORD: ${TLS_PASSWORD:KEY}
+  PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:https://localhost:8443}
+  CHAIN_URL: ${CHAIN_URL:https://localhost:9545}
+  SERVICE_HOSTS: ${SERVICE_HOSTS:**,localhost,127.0.0.1}
+  BUSINESS_KEY: ${BUSINESS_KEY:KEY}
+  DATA_KEY: ${DATA_KEY:KEY}
+  AUDIT_KEY: ${AUDIT_KEY:KEY}
+  LEDGER_KEY: ${LEDGER_KEY:KEY}
+  AUDIT_DATA_KEY: ${AUDIT_DATA_KEY:KEY}

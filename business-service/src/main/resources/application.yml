@@ -1,0 +1,22 @@
+server:
+  port: ${BUSINESS_SERVICE_PORT:9441}
+  address: ${BIND_ADDRESS:127.0.0.1}
+  ssl:
+    enabled: true
+    key-store: ./.runtime/localhost.p12
+    key-store-password: ${TLS_PASSWORD:campus-dev-tls-2024}
+    key-store-type: PKCS12
+  error:
+    include-message: never
+    include-binding-errors: never
+
+campus:
+  CHAIN_URL: ${CHAIN_URL:https://localhost:9545}
+  GATEWAY_KEY: ${GATEWAY_KEY:KEY}
+  DATA_KEY: ${DATA_KEY:KEY}
+  AUDIT_KEY: ${AUDIT_KEY:KEY}
+  LEDGER_KEY: ${LEDGER_KEY:KEY}
+  AUDIT_DATA_KEY: ${AUDIT_DATA_KEY:KEY}
+  TLS_PASSWORD: ${TLS_PASSWORD:KEY}
+  GATEWAY_URL: ${GATEWAY_URL:https://localhost:8443}
+  BUSINESS_KEY: ${BUSINESS_KEY:KEY}
