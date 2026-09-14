@@ -19,7 +19,7 @@ public class WebConfiguration implements WebMvcConfigurer {
         throws ServletException, IOException {
       s.setHeader(
           "Content-Security-Policy",
-          "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
       s.setHeader("X-Content-Type-Options", "nosniff");
       s.setHeader("Referrer-Policy", "no-referrer");
       s.setHeader("X-Frame-Options", "DENY");
