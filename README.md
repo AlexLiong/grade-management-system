@@ -20,7 +20,7 @@ mvn -q -DskipTests clean package
 ```
 启动服务
 ```bash
-./script/start.sh
+./scripts/start.sh
 ```
 
 

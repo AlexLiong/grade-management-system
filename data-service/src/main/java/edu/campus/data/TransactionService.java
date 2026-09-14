@@ -167,10 +167,7 @@ public class TransactionService {
                 Map<String, Object> afterRow = row(o.table(), id);
                 var secrets = SNAPSHOT_SECRETS.getOrDefault(o.table(), List.of());
                 for (String field : secrets) {
-                  Object after = afterRow.get(field);
-                  ApiException.require(
-                      after instanceof String, 500, "审计快照字段缺失：" + o.table() + "." + field);
-                  afterRow.put(field, sealSnapshot(auditId, "after", field, after));
+                  afterRow.put(field, sealSnapshot(auditId, "after", field, afterRow.get(field)));
                   Object prior = before.get(field);
                   if (prior instanceof String)
                     before.put(field, sealSnapshot(auditId, "before", field, prior));

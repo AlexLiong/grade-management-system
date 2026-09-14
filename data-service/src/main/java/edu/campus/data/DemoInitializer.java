@@ -184,7 +184,11 @@ public class DemoInitializer implements ApplicationRunner {
             after.put("version", version);
             after.put(
                     "payload",
-                    TransactionService.sealSnapshot(eventId, "after", "payload", row.get("payload")));
+                    TransactionService.sealSnapshot(
+                            eventId, "after", "payload",
+                            Crypto.decrypt(Settings.get("DATA_KEY"),
+                                    gid + "|" + courseId + "|" + studentId + "|" + state + "|" + version,
+                                    row.get("payload").toString())));
             events.add(new Protocol.AuditEvent(
                     eventId, "DEMO_SEED", "GRADE_SEED", courseId,
                     Instant.now().toString(),
