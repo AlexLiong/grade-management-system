@@ -173,15 +173,20 @@ public class DemoInitializer implements ApplicationRunner {
             String studentId = (String) row.get("student_id");
             String state = (String) row.get("state");
             int version = row.get("version") == null ? 0 : ((Number) row.get("version")).intValue();
+            // 演示种子事件与运行时路径同构：payload 同样以密文进入账本，
+            // 明文只在 audit-service 读取（/audit）时还原给前端。
+            String eventId = UUID.randomUUID().toString();
             Map<String, Object> after = new LinkedHashMap<>();
             after.put("id", gid);
             after.put("course_id", courseId);
             after.put("student_id", studentId);
-            after.put("payload", row.get("payload"));
             after.put("state", state);
             after.put("version", version);
+            after.put(
+                    "payload",
+                    TransactionService.sealSnapshot(eventId, "after", "payload", row.get("payload")));
             events.add(new Protocol.AuditEvent(
-                    UUID.randomUUID().toString(), "DEMO_SEED", "GRADE_SEED", courseId,
+                    eventId, "DEMO_SEED", "GRADE_SEED", courseId,
                     Instant.now().toString(),
                     List.of(Map.of("table", "grades", "id", gid, "before", Map.of(), "after", after))));
         }

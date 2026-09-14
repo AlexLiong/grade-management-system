@@ -1,6 +1,7 @@
 package edu.campus.data;
 
 import edu.campus.common.*;
+import java.nio.charset.StandardCharsets;
 import java.sql.*;
 import java.time.Instant;
 import java.util.*;
@@ -83,6 +84,27 @@ public class TransactionService {
     return result;
   }
 
+  /**
+   * 审计快照专用：把快照字段封成密文，账本只落密文，解密权归 audit-service。
+   *
+   * <p>AAD 使用事件级标识（eventId + 变更位 + 字段），不绑定行的 state/version，
+   * 因此历史快照在任何时候都能被 audit-service 解出，不会因为成绩被改写而永久失效。
+   * 密文自带 AAD（base64url(aad) + "~" + "salt:iv:ct"），审计侧无需额外元数据。
+   */
+  public static String sealSnapshot(String eventId, String changeKey, String field, Object plain) {
+    ApiException.require(plain != null, 400, "审计快照缺少字段：" + field);
+    String aad = eventId + "|" + changeKey + "|" + field;
+    return Base64.getUrlEncoder()
+            .withoutPadding()
+            .encodeToString(aad.getBytes(StandardCharsets.UTF_8))
+        + "~"
+        + Crypto.encrypt(Settings.get("DATA_KEY"), aad, plain.toString());
+  }
+
+  /** 需要以密文进入账本的快照字段（数据库与账本都只保存密文）。 */
+  private static final Map<String, List<String>> SNAPSHOT_SECRETS =
+      Map.of("grades", List.of("payload"));
+
   public synchronized boolean manipulate(Protocol.Mutation m) {
     ApiException.require(
         m.operations() != null && !m.operations().isEmpty() && m.operations().size() <= 500,
@@ -97,6 +119,8 @@ public class TransactionService {
           ((Number) status().get("pending")).intValue() == 0, 503, "审计同步尚未完成，暂停敏感写入");
       audit.post("audit", "/internal/check", Map.of(), Map.class);
     }
+    // 事件 id 提前确定：审计快照的密文 AAD 需要它，且保证 before/after 与事件本体一致。
+    String auditId = m.requestId() == null ? UUID.randomUUID().toString() : m.requestId();
     try {
       tx.executeWithoutResult(
           status -> {
@@ -138,27 +162,32 @@ public class TransactionService {
                   o.expectedCount() == null || count == o.expectedCount(),
                   409,
                   "数据已被其他操作修改，请刷新后重试");
-              if (sensitive)
+              if (sensitive) {
+                // 入库后重读，保证账本快照与数据库 row 完全一致
+                Map<String, Object> afterRow = row(o.table(), id);
+                var secrets = SNAPSHOT_SECRETS.getOrDefault(o.table(), List.of());
+                for (String field : secrets) {
+                  Object after = afterRow.get(field);
+                  ApiException.require(
+                      after instanceof String, 500, "审计快照字段缺失：" + o.table() + "." + field);
+                  afterRow.put(field, sealSnapshot(auditId, "after", field, after));
+                  Object prior = before.get(field);
+                  if (prior instanceof String)
+                    before.put(field, sealSnapshot(auditId, "before", field, prior));
+                }
                 changes.add(
-                    Map.of(
-                        "table",
-                        o.table(),
-                        "id",
-                        id,
-                        "before",
-                        before,
-                        "after",
-                        row(o.table(), id)));
+                    new LinkedHashMap<>(
+                        Map.of("table", o.table(), "id", id, "before", before, "after", afterRow)));
+              }
             }
             if (sensitive) {
-              String id = UUID.randomUUID().toString();
               var event =
                   new Protocol.AuditEvent(
-                      id, m.actor(), m.action(), m.resource(), Instant.now().toString(), changes);
+                      auditId, m.actor(), m.action(), m.resource(), Instant.now().toString(), changes);
               jdbc.update(
                   "INSERT INTO audits (id,payload,delivered) VALUES (?,?,?)",
-                  id,
-                  Crypto.encrypt(Settings.get("DATA_KEY"), id, Settings.json(event)),
+                  auditId,
+                  Crypto.encrypt(Settings.get("DATA_KEY"), auditId, Settings.json(event)),
                   0);
             }
           });

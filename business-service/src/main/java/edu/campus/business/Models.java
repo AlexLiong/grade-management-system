@@ -64,7 +64,8 @@ public final class Models {
 
     public static Map<String, Object> grade(Map<String, Object> row) {
         var copy = new LinkedHashMap<>(row);
-        copy.put("scores", object(copy.remove("payload")));
+        Object payload = copy.remove("payload");
+        copy.put("scores", object(payload));
         return copy;
     }
 

@@ -90,12 +90,56 @@ public class LedgerService {
 
     private Protocol.AuditEvent decode(Block b) {
         try {
-            return Settings.JSON.readValue(
-                    Crypto.decrypt(KEY, "" + b.index(), b.ciphertext()),
-                    Protocol.AuditEvent.class);
+            return reveal(
+                    Settings.JSON.readValue(
+                            Crypto.decrypt(KEY, "" + b.index(), b.ciphertext()),
+                            Protocol.AuditEvent.class));
         } catch (Exception e) {
             throw new ApiException(409, "LEDGER_CORRUPT", "独立账本解密失败");
         }
+    }
+
+    /** 账本快照中以密文保存的字段（数据库与账本均只保存密文）。 */
+    private static final List<String> SNAPSHOT_SECRETS = List.of("payload", "content");
+
+    /**
+     * 快照解密：账本里保存的是密文，明文只在本服务读取时还原。
+     * 快照密文格式为 base64url(aad) + "~" + salt:iv:ct，AAD 随密文一起保存，
+     * 因此历史快照不需要依赖行当前状态即可解开。
+     */
+    private Protocol.AuditEvent reveal(Protocol.AuditEvent event) {
+        return new Protocol.AuditEvent(
+                event.id(),
+                event.actor(),
+                event.action(),
+                event.resource(),
+                event.time(),
+                event.changes().stream()
+                        .map(
+                                change -> {
+                                    var copy = new LinkedHashMap<String, Object>(change);
+                                    copy.put("before", revealRow(change.get("before")));
+                                    copy.put("after", revealRow(change.get("after")));
+                                    return (Map<String, Object>) copy;
+                                })
+                        .toList());
+    }
+
+    private Map<String, Object> revealRow(Object snapshot) {
+        if (!(snapshot instanceof Map<?, ?> raw) || raw.isEmpty()) return null;
+        var row = new LinkedHashMap<String, Object>();
+        raw.forEach((k, v) -> row.put(String.valueOf(k), v));
+        for (String field : SNAPSHOT_SECRETS) {
+            Object value = row.get(field);
+            if (!(value instanceof String sealed) || sealed.indexOf('~') < 0) continue;
+            int split = sealed.indexOf('~');
+            String aad =
+                    new String(
+                            Base64.getUrlDecoder().decode(sealed.substring(0, split)),
+                            StandardCharsets.UTF_8);
+            row.put(field, Crypto.decrypt(KEY, aad, sealed.substring(split + 1)));
+        }
+        return row;
     }
 
     public synchronized Map<String, Object> append(Protocol.AuditEvent event) {
