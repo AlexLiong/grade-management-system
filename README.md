@@ -64,7 +64,7 @@ mvn -q -DskipTests clean package
 前端开发服务器
 
 ```bash
-npm run --prefix frontedn dev
+npm run --prefix frontend dev
 ```
 前端调试运行 `npm --prefix frontend run dev`，访问 https://localhost:5173；请求由 Vite 代理到 8443。最终交付页面由网关直接提供，无需同时启动 Vite。
 
@@ -90,6 +90,7 @@ node scripts/generate-docs.mjs --check
 4. [UML、用例、状态、时序、数据库模型](docs/models.md)
 5. [安全设计与应急处理](docs/security.md)
 6. [运行部署与扩缩容](docs/deployment.md)
-7. [API 与命名约定](docs/api.md)
-8. [测试报告](docs/testing.md)
-9. [开发过程与设计决策](docs/decisions.md)
+7. [环境安装与配置说明（多系统/多环境）](docs/configuration.md)
+8. [API 与命名约定](docs/api.md)
+9. [测试报告](docs/testing.md)
+10. [开发过程与设计决策](docs/decisions.md)
