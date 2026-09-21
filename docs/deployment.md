@@ -17,7 +17,7 @@ JDK 17（必须是完整 JDK，含 keytool 和编译器）、Maven 3.9+、Node.j
 |EVM/LSTM 工具|127.0.0.1:9545 HTTPS|chain-worker/server.mjs|
 |Vue 调试|127.0.0.1:5173 HTTPS|Vite，可选|
 
-Java 工作目录设项目根；Node chain-worker 工作目录设 chain-worker。`start.mjs` 自动处理这些目录，并将 JAR 复制到独立 `.runtime/run-*` 目录运行，避免重新编译破坏在途类加载。旧运行副本可在全部服务停止后清理。每个服务 JVM 最大堆 384 MB，另留 Node/WASM 及操作系统资源，建议至少 4 GB 可用内存。
+Java 工作目录设项目根；Node chain-worker 工作目录设 chain-worker。`scripts/start.sh` 从项目根依次启动 chain-worker 和四个 Java 服务，直接运行各模块 `target/` 下打包好的 JAR，日志写入 `.logs/`，Ctrl+C 统一停止。Windows 无原生一键脚本，需手动分窗口启动，步骤见 [配置说明](configuration.md)。建议为每个 Java 服务限制最大堆（如 `-Xmx384m`），另留 Node/WASM 及操作系统资源，整机建议至少 4 GB 可用内存。
 
 ## IDEA 运行配置
 
@@ -31,7 +31,7 @@ VM options：
 -Djavax.net.ssl.trustStorePassword=本机配置中的TLS_PASSWORD
 ```
 
-密码不能放进提交到 Git 的共享 IDEA 配置。可以从 IDE 的私有环境/运行参数填写。`start.mjs` 已自动读取配置并设置，通常更便于启动全套进程。
+密码不能放进提交到 Git 的共享 IDEA 配置。可以从 IDE 的私有环境/运行参数填写。使用 `scripts/start.sh` 启动全套进程时以项目根为工作目录直接运行 JAR，无需手工设置这些 VM 参数，通常更为便捷。
 
 ## Windows
 
@@ -52,19 +52,18 @@ VM options：
 
 ## 服务扩缩容
 
-业务服务是优先可扩容组件：复制 business-service JAR，以不同 PORT 和 ADVERTISE_URL 启动。所有副本指向同一网关和数据服务，使用相同会话存储。
+业务服务是优先可扩容组件：复制 business-service JAR，以不同 `BUSINESS_SERVICE_PORT` 启动。所有副本指向同一网关和数据服务，使用相同的全套密钥与 `GATEWAY_URL`。注册地址无需手工指定：副本启动后通过心跳（`ServiceHeartbeat`）自动以自身监听地址和端口向网关注册。
 
 PowerShell：
 
 ```powershell
-$env:PORT="9451"
-$env:ADVERTISE_URL="https://localhost:9451"
-java "-Dcampus.runtime=C:/work/campus-grade-system/.runtime" "-Djavax.net.ssl.trustStore=C:/work/campus-grade-system/.runtime/truststore.p12" "-Djavax.net.ssl.trustStorePassword=本机TLS密码" -jar business-service/target/business-service-1.0.0.jar
+$env:BUSINESS_SERVICE_PORT="9451"
+java -Dfile.encoding=UTF-8 -jar business-service/target/business-service-1.0.0.jar
 ```
 
-macOS/Linux 同样设置 PORT/ADVERTISE_URL 后运行。新副本 5 秒内注册，20 秒未续租则不再参与轮询。连接失败会返回 503，不对未知是否成功的写操作自动重试。重试时必须刷新版本。
+macOS/Linux 同样设置 `BUSINESS_SERVICE_PORT` 后运行（工作目录为项目根）。新副本 5 秒内注册，20 秒未续租则不再参与轮询。连接失败会返回 503，不对未知是否成功的写操作自动重试。重试时必须刷新版本。
 
-跨机器必须配置 BIND_ADDRESS、ADVERTISE_URL、GATEWAY_URL、SERVICE_HOSTS、目标主机证书 SAN；设置防火墙 allowlist。默认 localhost 证书不适用于其他主机。当前注册中心单实例，生产多网关需共享注册后端；升级 Spring Cloud 组件的决策见架构文档。
+跨机器必须配置 BIND_ADDRESS、GATEWAY_URL、PUBLIC_ORIGIN、SERVICE_HOSTS、目标主机证书 SAN；设置防火墙 allowlist。默认 localhost 证书不适用于其他主机。当前注册中心单实例，生产多网关需共享注册后端；升级 Spring Cloud 组件的决策见架构文档。
 
 H2 文件模式不支持多个独立数据服务同时打开同一数据库。外部数据库下可再评估数据服务扩容，但审计发送顺序与跨副本排他需要补充协调。本版本只验证业务服务多实例，不宣称数据和审计横向扩容已可直接无损上线。
 
@@ -83,7 +82,7 @@ H2 文件模式不支持多个独立数据服务同时打开同一数据库。�
 |登录服务未就绪|查看 /health，等待三个 Java 服务完成注册和 seed；不要反复错误登录|
 |503 审计同步中|查看 data-service.log 的 outbox 错误；检查链工具启动及文件权限|
 |EVM insufficient funds|测试账户应稳定且自动补充测试 gas，检查是否误替换本机密钥配置|
-|OCR 模型加载失败|运行 assets.mjs 后重新 build；检查本机 OCR 路径、CSP 和证书|
+|OCR 模型加载失败|确认 `frontend/public/ocr/`（worker.min.js、core、lang）完整后重新 build；检查本机 OCR 路径、CSP 和证书|
 |课程 409|刷新版本；若提示完整性错误，应按安全应急流程处理|
 |数据库已占用|确认没有第二个数据服务或数据库 GUI 打开 H2 文件|
 |移动端表格超宽|表格容器支持横向滚动，页面本身不应出现横向溢出|

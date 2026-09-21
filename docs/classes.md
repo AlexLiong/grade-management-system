@@ -692,4 +692,4 @@ Webservice 远程调用客户端。HTTPS 使用可信证书校验，连接/请�
 
 ## 前端与工具职责
 
-`App.vue` 维护角色可见视图、课程状态、成绩表草稿、模态框及交互，所有服务器结果通过 Vue 文本绑定渲染。`api.js` 是统一同源请求客户端，读取 CSRF Cookie 并映射失败。`server.mjs` 维护独立 EVM、串行锚定请求和 LSTM 模型。`setup.mjs` 生成证书/随机配置，`start.mjs` 监督服务生命周期，`assets.mjs` 部署 OCR 离线资源。测试脚本不属于业务运行入口。
+`App.vue` 维护角色可见视图、课程状态、成绩表草稿、模态框及交互，所有服务器结果通过 Vue 文本绑定渲染。`api.js` 是统一同源请求客户端，读取 CSRF Cookie 并映射失败。`server.mjs` 维护独立 EVM、串行锚定请求和 LSTM 模型。`setup.mjs` 生成证书/随机配置，`start.sh` 一键启动与停止全部服务，OCR 离线资源随源码置于 `frontend/public/ocr/`。测试脚本不属于业务运行入口。

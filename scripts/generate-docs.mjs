@@ -88,7 +88,7 @@ for (const t of types) {
       "\n\n";
 }
 doc +=
-  "## 前端与工具职责\n\n`App.vue` 维护角色可见视图、课程状态、成绩表草稿、模态框及交互，所有服务器结果通过 Vue 文本绑定渲染。`api.js` 是统一同源请求客户端，读取 CSRF Cookie 并映射失败。`server.mjs` 维护独立 EVM、串行锚定请求和 LSTM 模型。`setup.mjs` 生成证书/随机配置，`start.mjs` 监督服务生命周期，`assets.mjs` 部署 OCR 离线资源。测试脚本不属于业务运行入口。\n";
+  "## 前端与工具职责\n\n`App.vue` 维护角色可见视图、课程状态、成绩表草稿、模态框及交互，所有服务器结果通过 Vue 文本绑定渲染。`api.js` 是统一同源请求客户端，读取 CSRF Cookie 并映射失败。`server.mjs` 维护独立 EVM、串行锚定请求和 LSTM 模型。`setup.mjs` 生成证书/随机配置，`start.sh` 一键启动与停止全部服务，OCR 离线资源随源码置于 `frontend/public/ocr/`。测试脚本不属于业务运行入口。\n";
 let uml =
   "# 与源码对应的完整类型图\n\n本文件由 JDK 语法树生成。每个节点对应一个真实命名类型；字段引用关系只表示代码依赖，不假造继承。完整方法签名见 classes.md。\n\n";
 for (const pkg of [...new Set(types.map((t) => t.package))]) {
