@@ -12,7 +12,6 @@ classDiagram
     class LedgerService_Block["LedgerService.Block"]
     <<record>> LedgerService_Block
     LedgerService *-- LedgerService_Block
-    AuditController --> LedgerService
 ```
 
 ## edu.campus.business
@@ -24,29 +23,34 @@ classDiagram
     class ApiController["ApiController"]
     class AuthService["AuthService"]
     class BusinessApplication["BusinessApplication"]
+    class CoreRoutes["CoreRoutes"]
     class CourseService["CourseService"]
-    class DemoSeeder["DemoSeeder"]
     class GradeService["GradeService"]
     class Models["Models"]
+    class Models_Level["Models.Level"]
+    Models *-- Models_Level
     class Models_User["Models.User"]
     <<record>> Models_User
     Models *-- Models_User
+    class OrganizationService["OrganizationService"]
+    class OrganizeRoutes["OrganizeRoutes"]
     class RemoteRepository["RemoteRepository"]
-    AdminService --> RemoteRepository
-    AnalyticsService --> CourseService
-    AnalyticsService --> RemoteRepository
-    ApiController --> AdminService
-    ApiController --> AnalyticsService
-    ApiController --> AuthService
-    ApiController --> CourseService
-    ApiController --> GradeService
-    ApiController --> RemoteRepository
-    AuthService --> RemoteRepository
-    CourseService --> RemoteRepository
-    DemoSeeder --> RemoteRepository
-    GradeService --> AnalyticsService
-    GradeService --> CourseService
-    GradeService --> RemoteRepository
+    class Routes["Routes"]
+    <<interface>> Routes
+    class Routes_Request["Routes.Request"]
+    <<record>> Routes_Request
+    Routes *-- Routes_Request
+    class SelectionRoutes["SelectionRoutes"]
+    class SelectionService["SelectionService"]
+    class SelectionService_FailedCodes["SelectionService.FailedCodes"]
+    SelectionService *-- SelectionService_FailedCodes
+    class SelectionService_CodeHistory["SelectionService.CodeHistory"]
+    <<record>> SelectionService_CodeHistory
+    SelectionService *-- SelectionService_CodeHistory
+    class SelectionService_StudentState["SelectionService.StudentState"]
+    SelectionService *-- SelectionService_StudentState
+    class SelectionService_Names["SelectionService.Names"]
+    SelectionService *-- SelectionService_Names
 ```
 
 ## edu.campus.common
@@ -82,6 +86,8 @@ classDiagram
     class RpcClient["RpcClient"]
     class ServiceHeartbeat["ServiceHeartbeat"]
     class Settings["Settings"]
+    class Settings_Loader["Settings.Loader"]
+    Settings *-- Settings_Loader
 ```
 
 ## edu.campus.data
@@ -90,16 +96,34 @@ classDiagram
 classDiagram
     class DataApplication["DataApplication"]
     class DataRpcController["DataRpcController"]
+    class DemoInitializer["DemoInitializer"]
+    class DemoInitializer_Org["DemoInitializer.Org"]
+    <<record>> DemoInitializer_Org
+    DemoInitializer *-- DemoInitializer_Org
+    class DemoInitializer_Person["DemoInitializer.Person"]
+    <<record>> DemoInitializer_Person
+    DemoInitializer *-- DemoInitializer_Person
+    class DemoInitializer_Course["DemoInitializer.Course"]
+    <<record>> DemoInitializer_Course
+    DemoInitializer *-- DemoInitializer_Course
+    class DemoInitializer_SampleLayer["DemoInitializer.SampleLayer"]
+    <<record>> DemoInitializer_SampleLayer
+    DemoInitializer *-- DemoInitializer_SampleLayer
+    class DemoInitializer_Retake["DemoInitializer.Retake"]
+    <<record>> DemoInitializer_Retake
+    DemoInitializer *-- DemoInitializer_Retake
+    class DemoInitializer_Attempt["DemoInitializer.Attempt"]
+    <<record>> DemoInitializer_Attempt
+    DemoInitializer *-- DemoInitializer_Attempt
+    class DemoInitializer_GradeRow["DemoInitializer.GradeRow"]
+    <<record>> DemoInitializer_GradeRow
+    DemoInitializer *-- DemoInitializer_GradeRow
     class SchemaCatalog["SchemaCatalog"]
     class SqlCompiler["SqlCompiler"]
     class SqlCompiler_Statement["SqlCompiler.Statement"]
     <<record>> SqlCompiler_Statement
     SqlCompiler *-- SqlCompiler_Statement
     class TransactionService["TransactionService"]
-    DataRpcController --> TransactionService
-    SqlCompiler --> SchemaCatalog
-    TransactionService --> SchemaCatalog
-    TransactionService --> SqlCompiler
 ```
 
 ## edu.campus.gateway
@@ -112,9 +136,9 @@ classDiagram
     class RegistryController_Entry["RegistryController.Entry"]
     <<record>> RegistryController_Entry
     RegistryController *-- RegistryController_Entry
+    class SystemController["SystemController"]
     class WebConfiguration["WebConfiguration"]
     class WebConfiguration_Headers["WebConfiguration.Headers"]
     WebConfiguration *-- WebConfiguration_Headers
-    GatewayController --> RegistryController
 ```
 

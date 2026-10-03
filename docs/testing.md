@@ -1,23 +1,238 @@
 # 测试报告与验证证据
 
-本报告依据实际运行输出生成，不把尚未执行的平台或安全扫描写成通过。原始摘要保存在 `docs/evidence/`，完整本机运行日志在 `.runtime/logs/`，浏览器执行结果在 `test-results/`。
+本报告依据实际运行输出生成，不把尚未执行的平台或安全扫描写成通过。五轮（第一轮「组织管理与网上选课」、第二轮「8 条修正」、第三轮「侧栏拖动 + 编号回归主键 `id`」、第四轮「重修语义」、第五轮「学业记录重修状态 + 学业预警可用」）的原始证据都保存在 `.runtime/logs/`（`junit-summary.json`、`feature-test.json`、`browser-check.json`、`sidebar-resize-check.json`）、各模块 `target/surefire-reports/` 与 `test-results/browser/`（界面截图）；原始交付的摘要记录在 `docs/evidence/`（该目录在当前源码树中不存在，见「复现顺序」说明）。**本文档以第五轮冻结修订上的实测结果为当前值（248 / 201 / 57 / 28），前四轮的旧数字只在各自的小节里作历史对照。**
 
 ## 环境
 
-macOS ARM64、JDK 17.0.13、Maven、Node.js v26.0.0、Chromium、HTTPS 本机证书、加密 H2 文件库、独立 Java 服务与 Ganache EVM。演示数据为合成数据，不含真实学生信息。
+本轮实测环境为 Windows、**JDK 17**（`mvn -o clean package` 用 `JAVA_HOME` 指向的 JDK 17 编译，产物 class 文件主版本 61）、Node.js v26.3.0、HTTPS 本机证书、加密 H2 文件库、独立 Java 服务与 Ganache EVM；浏览器检查用本机 Edge 无头模式。第四轮在同一环境复跑，演示库按 `SchemaCatalog.SCHEMA_VERSION = 3` 整库重建为 4 学院 / 8 专业 / 16 班级 / 65 账号 / 35 教学班的规模。原始交付记录的环境为 macOS ARM64、JDK 17.0.13。演示数据为合成数据，不含真实学生信息。
 
 ## 汇总
 
 |测试层|通过|失败|证据|
 |---|---:|---:|---|
-|Java 单元、事务与异常检测|20|0|[JUnit 原始报告汇总](evidence/junit-summary.json)|
+|Java 单元测试（第五轮实测 `mvn -o clean package`）|248|0|[junit-summary.json](../.runtime/logs/junit-summary.json)|
+|feature 端到端（第五轮实测；第四轮为 183 条）|201|0|[feature-test.json](../.runtime/logs/feature-test.json)|
+|browser 真实浏览器（第五轮实测；第四轮为 50 条）|57|0|[browser-check.json](../.runtime/logs/browser-check.json)|
+|侧栏拖动专项检查（第四轮记录，第五轮未重跑）|28|0|[sidebar-resize-check.json](../.runtime/logs/sidebar-resize-check.json)|
 |api|18|0|[api.json](evidence/api.json)|
 |workflow|17|0|[workflow.json](evidence/workflow.json)|
 |tamper|5|0|[tamper.json](evidence/tamper.json)|
 |scale|4|0|[scale.json](evidence/scale.json)|
 |Playwright 浏览器|6|0|[browser-summary.json](evidence/browser-summary.json)|
 
-合计 70 项/组检查通过。不同层级包含多条断言，这个数量不等同于穷举所有输入组合。
+**第五轮实测的是前四行：Java 单元测试 248 条、feature 端到端 201/201、真实浏览器检查 57/57，侧栏拖动专项沿用第四轮记录 28/28，全部 0 失败**。前三条在本轮冻结修订上运行，证据文件时间为 `2026-10-03T16:37:16.839Z`、`16:35:09.260Z`、`16:36:25.085Z`（本机 00:37:16、00:35:09、00:36:25；侧栏专项为 `15:31:28.982Z`）。**前四轮的记录只在下方各节作历史对照，不代表当前值**：第一轮 204 / 114 / 15，第二轮 234 / 156 / 35，第三轮 230 / 164 / 44，第四轮 243 / 183 / 50。其余五行是原始交付记录，本轮未重新执行，且其脚本在当前源码树中不存在（见文末「复现顺序」），不计入本轮结论。不同层级包含多条断言，这个数量不等同于穷举所有输入组合。
+
+## 第三轮（R3）说明（历史记录）
+
+第三轮只改两处：前端侧栏宽度由「折叠按钮」改为「鼠标拖动调节」，以及组织编号回归数据库主键 `id`（取消第二轮的显示编号 `code`）。按用户要求，第三轮**不为这两处改动新写测试用例**；但既有测试已按新契约更新并全部重跑通过——Java 侧删掉 7 条「两位显示编号」用例、新增 3 条「主键编号」用例（净减 4 条，234 → 230），端到端与浏览器脚本则扩充了编号字段与侧栏拖动的断言。各证据文件在第三轮冻结修订上的记录：
+
+|证据文件|第三轮记录值|文件时间（本机）|
+|---|---|---|
+|`.runtime/logs/junit-summary.json`|230（0 失败）|2026-10-03 22:35:41|
+|`.runtime/logs/feature-test.json`|164（0 失败）|2026-10-03 22:38:12|
+|`.runtime/logs/browser-check.json`|44（0 失败）|2026-10-03 22:38:54|
+|`.runtime/logs/sidebar-resize-check.json`|28（0 失败）|2026-10-03 22:39:10|
+
+下文各节按修订标注：`## Java 单元测试（第四轮实测）` 与浏览器一节给出第四轮当前结果，第一至三轮的明细保留在各自的历史小节里作对照。
+
+## 第四轮（R4）说明（历史记录）：重修语义
+
+> 本节是第四轮冻结修订上的快照；当前结果见上一节第五轮。
+
+第四轮改的是「重修」的语义与数据：重修不体现在课程名上（同一课程号在后续学年重新开设，课程名保持一致），并在学生端、教师端、教务端下发重修状态（`retake`/`retakeLabel`/`retakeCount`），同时给演示数据补上挂科后重修的学生与启动自检。
+
+### 结果
+
+|验证项|结果|证据文件|文件时间（本机）|
+|---|---|---|---|
+|Java 单元测试 `mvn -o clean package`|**243 / 0 失败**|`.runtime/logs/junit-summary.json`|2026-10-03 23:28:12|
+|端到端功能测试 `node scripts/feature-test.mjs`|**183 / 183 通过**|`.runtime/logs/feature-test.json`|2026-10-03 23:30:37|
+|浏览器验证 `node scripts/browser-check.mjs`|**50 / 50 通过**|`.runtime/logs/browser-check.json`|2026-10-03 23:31:12|
+|侧栏拖动专项 `node scripts/verify-sidebar-resize.mjs`|**28 / 28 通过**|`.runtime/logs/sidebar-resize-check.json`|2026-10-03 23:31:28|
+|生成式文档 `node scripts/generate-docs.mjs --check`|通过，**61 个 Java 命名类型**|—|—|
+
+### Java 单元测试（243 条）
+
+逐模块与逐测试类的明细、以及相对第三轮的增量见下文「Java 单元测试（第四轮实测）」一节；本轮净增 13 条，全部是重修判定相关的新用例（`SelectionServiceTest` +9、`CourseServiceTest` +4）。
+
+### 端到端功能测试（183/183，新增 19 条）
+
+第四轮脚本从 164 条扩到 183 条（+19）：新增 `[8b]` 重修语义段 15 条，并在 `[1]`/`[2]` 组织与初始化数据段补充若干条。核心断言：
+
+- 初始化数据里 `CS102` 有多个学期的教学班，且**同一课程代码在不同学年使用完全相同的课程名**；
+- 初始化数据的课程名**不含「重修」字样**；
+- 学生端 `/selections/my` 把重修的课标记为 `retake=true` + `retakeLabel="重修"`，非重修课程不被误标；
+- 教师端 `/roster` 名单标出重修学生，且**重修教学班名单里的学生全是重修生**；
+- 重修判定依据是「更早学期已提交且不及格」的成绩；当前重修教学班成绩未提交，供教师现场录入。
+
+### 浏览器验证（50/50，新增 6 条）
+
+第四轮脚本从 44 条扩到 50 条（+6），新增断言：
+
+- 学生端显示重修徽标；
+- 课程名不含中文括号的「重修」后缀；
+- 重修徽标出现在「程序设计基础（CS102）」那一行；
+- 教师课程下拉能找到 2026-1 的重修班；
+- 教师端名单标出重修学生；
+- 教师端课程名同样无重修后缀。
+
+### 演示数据与自检（启动日志原文）
+
+> 下面是**第四轮冻结修订**上的启动日志快照；第五轮为学业预警补充了历史样本与暂存成绩，因此教学班/选课/成绩条数会变化，当前条数以最新一次启动日志为准（本节不预写新数字）。
+
+```text
+[DemoInitializer] 数据已写入：4 个学院、8 个专业、16 个班级、65 个账号、35 个教学班、107 条选课、78 条成绩、1 个选课批次。
+[DemoInitializer] 成绩单自检通过：5 名重修学生（3 个课程代码）、48 名学生，无「已通过重选」的跨学期重复课程代码。
+[DemoInitializer] 账本已按新数据库重建并锚定 78 条成绩事件（课程 35 门）。
+```
+
+5 名重修学生：
+
+|学号|姓名|课程代码|挂科学期与有效分|重修学期与结果|
+|---|---|---|---|---|
+|20231530|林知夏|CS102|2023-1，52 分|2024-1 重修，60 分通过|
+|20231536|赵一诺|MG101|（同型）|2024-1 重修通过|
+|20231542|崔明轩|CE101|（同型）|2024-1 重修通过|
+|20241531|冯亦舟|CS102|2024-1，52 分|**2026-1 重修中，成绩未提交**|
+|20241532|邓墨白|CS102|2024-1，52 分|**2026-1 重修中，成绩未提交**|
+
+两名在读重修学生位于只接收重修学生的教学班 `c35-cs102c`（教师 `t1102`），教师登录即可在名单里看到他们并现场录入成绩。
+
+### 第四轮修复的问题
+
+`Models.total` 原先对**系数表缺项**会执行 `number(null)` 抛 NPE，而重修判定的两个入口（`SelectionService.failedCodes` 与 `CourseService.failedCodesBefore`）都 `catch (RuntimeException ignored)` 静默吞掉异常，后果是：课程行 `weights` 不全时，挂科学生**不会被判定为重修**（教师端名单与学生端徽标同时失效），且没有任何日志。现在改为「缺失系数按 0 权重处理」——缺项只是不参与计算，不会把整门课变成「无成绩」；`ModelsTest` 相应补充了用例。该修复消除了一个会影响重修判定的静默失败点，已记入 [decisions.md](decisions.md)。
+
+## 第五轮（R5）说明：学业记录重修状态 + 学业预警可用
+
+第五轮针对两条用户反馈：① 学生端「我的成绩」看不到某门课是否重修；② 学业预警一直提示「至少需要 3 年、24 条完整历史成绩，当前数据不足，未生成预测」。改动包括：`/transcript` 改为学期倒序并附 `retake`/`retakeLabel`；学业记录的已获课程/已获学分/未通过课程三个统计按课程代码去重；修正 `AnalyticsService.predict` 预测对象筛选条件写反的缺陷；为预测补历史样本层与缓考样本池，并把启动自检升级为 `verifyPredictionCoverage()`（逐门校验覆盖）。
+
+### 结果
+
+|验证项|结果|证据文件|文件时间（本机）|
+|---|---|---|---|
+|Java 单元测试 `mvn -o clean package`|**248 / 0 失败**|`.runtime/logs/junit-summary.json`|2026-10-03 00:37:16|
+|端到端功能测试 `node scripts/feature-test.mjs`|**201 / 201 通过**|`.runtime/logs/feature-test.json`|2026-10-03 00:35:09|
+|浏览器验证 `node scripts/browser-check.mjs`|**57 / 57 通过**|`.runtime/logs/browser-check.json`|2026-10-03 00:36:25|
+|侧栏拖动专项 `node scripts/verify-sidebar-resize.mjs`|**28 / 28 通过**（第四轮记录，本轮未重跑）|`.runtime/logs/sidebar-resize-check.json`|2026-10-03 23:31:28|
+|生成式文档 `node scripts/generate-docs.mjs --check`|通过，**63 个 Java 命名类型**（第四轮为 61）|—|—|
+
+### Java 单元测试（248 条）
+
+相对第四轮（243 条）净增 **5 条**，全部是本轮两条反馈相关的新用例；逐模块与逐类明细见下文「Java 单元测试（第五轮实测）」一节。
+
+|测试类|第四轮|第五轮|增量|
+|---|---:|---:|---:|
+|`GradeServiceTest`|11|14|+3（学业记录重修标注、单次修读不标重修、学期倒序）|
+|`AnalyticsRulesTest`|4|6|+2（预测返回缺期末的学生、历史不足 422）|
+|其余类|228|228|—|
+|合计|243|248|+5|
+
+### 端到端功能测试（201/201，新增 18 条）
+
+脚本从 183 条扩到 201 条（+18）：新增 `[8c]`「我的成绩：学业记录标注重修状态」6 条与 `[8d]`「学业预警：学生与教师的课程都能预测」12 条。核心断言：
+
+- 学业记录里同一课程代码出现在两个学期；**重修那条带 `retake=true` 与 `retakeLabel="重修"`**，第一次修读不标重修；
+- 两行课程名一致、**不含任何重修后缀**；返回顺序为**学期倒序**；只修读过一次的课程不被误标；
+- 学生**逐门课**调用 `/predict` 全部成功（不再提示「数据不足」）：当前学期课程返回 ≥3 个训练年份、≥24 条样本、≥1 行本人预测且字段完整；
+- 教师**逐门课**调用 `/predict` 全部成功。
+
+### 浏览器验证（57/57，新增 7 条）
+
+脚本从 50 条扩到 57 条（+7），第 49–55 条为本轮新增：
+
+|#|第五轮新增断言|结果|
+|---:|---|---|
+|49|「我的成绩」显示重修徽标|PASS|
+|50|「我的成绩」里 CS102 的两行课程名一致且不含中文括号的「重修」后缀|PASS|
+|51|「我的成绩」有 2 行程序设计基础（挂科 + 重修）|PASS|
+|52|学业预警页有生成预测按钮|PASS|
+|53|学业预警不再提示「数据不足」|PASS|
+|54|学业预警给出训练年份与样本数|PASS|
+|55|学业预警渲染出预测结果行|PASS|
+
+（第 56、57 条仍是「无未捕获页面错误」「无致命控制台错误」。）
+
+### 演示数据与自检（启动日志原文）
+
+```text
+[DemoInitializer] 数据已写入：4 个学院、8 个专业、21 个班级、206 个账号、155 个教学班、626 条选课、1445 条成绩、1 个选课批次。
+[DemoInitializer] 成绩单自检通过：5 名重修学生（3 个课程代码）、153 名学生，无「已通过重选」的跨学期重复课程代码。
+[DemoInitializer] 学业预警覆盖自检通过：64 门有选课的课程全部可预测。
+```
+
+- **账号构成**：3 名教务管理员 + 11 名教师 + 192 名学生（189 名已分班 + 3 名待分班）= 206；其中 45 名是历史样本学生、其余为缓考样本池学生。
+- **教学班构成**：155 = 64 个正课 + 91 个历史样本教学班（2020-1 至 2026-1）。
+- **成绩构成**：1445 = 正课成绩 + 历史样本成绩 819 条（91 个样本班 × 9 人）+ 缓考样本的暂存成绩。
+
+### 第五轮的两处数据设计
+
+1. **历史样本层只写成绩、不写选课**：`predict` 要求「同一课程代码 ≥3 个更早年份 + ≥24 条样本」，如果历史样本教学班也带选课记录，它们自己又变成「有学生选课、需要可预测」的课程，就得再往前补 3 个年份，形成无限回归。因此 `SAMPLE_LAYERS` 生成的历史教学班（`SAMPLE_COURSES`，2020-1 / 2021-1 / 2022-1 / 2023-2，共 91 个，id 形如 `h-2020-1-cs101`）**只写成绩、不写选课**，任课教师是 `seed-history`（非真实账号）：它们不出现在任何教师/学生的课程列表里，也不产生任何「跨学期重复修读」。
+2. **缓考样本池保证每门课都有预测对象**：为每门已提交成绩的正课补 1 名「有平时与实验、缺期末」的学生（暂存 `DRAFT` 成绩），这样每门课打开学业预警都能看到预测行。`verifyPredictionCoverage()` 对**每一门有 ACTIVE 选课的课程**校验「≥3 个更早年份 + ≥24 条三分项齐全的已提交成绩 + 本班至少 1 人缺期末」，不满足即中止启动；当前启动日志显示 64 门有选课的课程全部可预测。
+
+### 已知边界：预测只对进行中的课程有意义
+
+学生对本人的**已出分历史课程**调用 `/predict` 会返回 200，但 `results` 是**空数组**——因为预测对象是「已有平时与实验、期末还没考」的学生，而他本人那门课的期末早已录入。这不是缺陷，而是接口语义的必然结果（训练样本与预测对象是两个集合）。前端为此给出明确提示：学业预警页顶部说明「学业预警针对**正在进行中**的课程：已录入平时与实验、期末尚未考试时，可以预估期末与总评成绩。请在上方课程选择里选一门当前学期（2026-1）的课程」；选中已出分课程时显示「本学期的期末成绩已经录入，预测对象为空……请在课程选择里选一门当前学期（2026-1）的课程」。因此**预测只对进行中的课程有意义**。
+
+## Java 单元测试（第五轮实测）
+
+命令：`mvn -o clean package` → **BUILD SUCCESS，248 条测试、0 失败 0 错误 0 跳过**。逐模块统计（由各模块 `target/surefire-reports/TEST-*.xml` 汇总为 `.runtime/logs/junit-summary.json`，脚本 `scripts/junit-summary.mjs`，`generatedAt = 2026-10-03T16:37:16.839Z`）：
+
+|模块|用例数|失败|按测试类的明细|
+|---|---:|---:|---|
+|common|13|0|`CryptoTest` 4、`ProtocolTest` 5、`SettingsTest` 4|
+|gateway|10|0|`RegistryControllerTest` 10|
+|data-service|24|0|`SchemaCatalogTest` 8、`DataRpcControllerTest` 10、`SqlCompilerTest` 6|
+|business-service|195|0|`SelectionServiceTest` 48、`OrganizeRoutesTest` 36、`CourseServiceTest` 34、`OrganizationServiceTest` 23、`GradeServiceTest` 14、`ModelsTest` 12、`AdminServiceTest` 8、`AuthServiceTest` 8、`GradeRulesTest` 6、`AnalyticsRulesTest` 6|
+|audit-service|6|0|`AuditControllerTest` 3、`LedgerServiceTest` 3|
+|**合计**|**248**|**0**|13 + 10 + 24 + 195 + 6 = 248；business-service 的 195 与其测试类明细（48+36+34+23+14+12+8+8+6+6）一致|
+
+第五轮相对第四轮（243 条）净增 **5 条**，全部是本轮两条反馈相关的新用例：
+
+|测试类|第四轮|第五轮|增量|新增用例覆盖|
+|---|---:|---:|---:|---|
+|`GradeServiceTest`|11|14|+3|学业记录的重修标注、只修读一次不标重修、返回顺序为学期倒序|
+|`AnalyticsRulesTest`|4|6|+2|`/predict` 返回「缺期末」的学生、历史不足时 422|
+|其余类|228|228|—|—|
+|合计|243|248|+5|—|
+
+全部用例均不需要外部服务即可运行，属于纯单元/规则级验证；跨服务的端到端行为见下文 feature 与 browser 两层。
+
+### 第四轮用例变化（历史记录）
+
+第四轮相对第三轮（230 条）净增 **13 条**，全部是重修判定相关的新用例：
+
+|测试类|第三轮|第四轮|增量|
+|---|---:|---:|---:|
+|`SelectionServiceTest`|39|48|+9|
+|`CourseServiceTest`|30|34|+4|
+|其余类|161|161|—|
+|合计|230|243|+13|
+
+新增用例覆盖：`/selections/my` 与选课台的 `retake`/`retakeLabel` 标注（含「未出成绩不算重修」「已退课不算」的负例）、教务批次课程的 `retakeCount`、教师名单的 `retake` 标记、重修判定只取「更早学期 + 同一课程代码 + 已提交 + 有效分 < 60」，以及系数表缺项时 `Models.total` 不再抛异常（见上文「第四轮修复的问题」）。
+
+### 第三轮用例变化（历史记录）
+
+第三轮相对第二轮（234 条）**净减 4 条**，变化只落在两个直接相关的测试类：
+
+|测试类|第一轮|第二轮|第三轮|第三轮变化|
+|---|---:|---:|---:|---|
+|`OrganizationServiceTest`|21|28|23|删掉 7 条「两位显示编号」用例（`nextCode*` 与 `codeOf*`），新增 2 条「主键编号」用例（`nextIdFollowsDemoDataShape`、`nextIdNeverCollidesWithExistingIds`）|
+|`OrganizeRoutesTest`|31|35|36|新增 `listItemsDoNotExposeCodeKey`、`optionsItemsDoNotExposeCodeKey` 等「响应不含 `code` 键」用例，替换掉旧的显示编号断言|
+|`CourseServiceTest`|12|30|30|不变|
+|`SchemaCatalogTest`|7|8|8|不变|
+|合计|71|101|97|净减 4 条（234 → 230）|
+
+第二轮相对第一轮曾净增 30 条（71 → 101）；上表把三轮的数字并列，第三轮删掉 7 条、新增 3 条，因此当轮总数回到 230（第四轮再在此基础上净增 13 条到 243）。
+
+### 第二轮用例增量（历史记录）
+
+|测试类|第一轮|第二轮|增量|第二轮相关用例覆盖|
+|---|---:|---:|---:|---|
+|`OrganizationServiceTest`|21|28|+7|（这批用例已在第三轮随 `nextCode` 删除）`nextCodeStartsAt01AndIncrementsFromMax`、`nextCodeSkipsOccupiedSlotInsteadOfOverwriting`、`nextCodeIgnoresNonTwoDigitHistoricalCodes`、`nextCodeRejectsExhaustedLevel`、`nextCodeRejectsWhenLastSlotIsTaken`、`saveIgnoresBodyCodeAndNeverFailsOnIt`、`codeOfReturnsStoredCodeOrEmptyString`|
+|`OrganizeRoutesTest`|31|35|+4|（第三轮已改为「不含 `code` 键」用例）`listAndOptionsExposeTwoDigitCodeWithoutCounselor`、`listWithoutStoredCodeOutputsEmptyString`、`saveCreatesCollegeWithGeneratedIdAndCode`、`saveUpdateIgnoresBodyCodeAndCounselor`；另调整 `assignRejectsAdminAccountInEitherList`（管理员不能被列入学生或教师名单）|
+|`CourseServiceTest`|12|30|+18|`batchByCourse*` 15 条（按 `studentIds` 选课并跳过已选、按班级名称整班选课、名单与班级并集去重、两者都不给 400、课程/班级不存在、退课时有成绩的学生进 `failed` 其余成功、退课后重选复用 `DROPPED` 行走 `UPDATE`、超过 300 人 400、`publishId` 自动解析 / 回退 `CLOSED` / 显式指定 / 无匹配时留空、`GRADE_ADMIN` 权限、非学生与未知学生、退课允许停用学生）、`enrollWritesAdminAssignRecordAndSelectedAt`、`enrollRemoveWritesAdminRemoveRecord`、`coreRoutesForwardsEnrollmentBatchToSelectionService`|
+|`SchemaCatalogTest`|7|8|+1|结构版本过期触发整库重建，以及补列迁移路径的回归用例|
+|合计|71|101|+30|—|
 
 ## api · 2026-09-08T16:40:00.312Z
 
@@ -113,7 +328,24 @@ Ganache 7.9.2 捆绑部分依赖，兼容修复后仍有 elliptic、secp256k1、
 
 ## 已发现并修复的问题
 
-注册发现 URL 序列化、TLS 信任库、EVM 重启账户、OCR WebAssembly CSP、停用学生退选、加载期间课程切换竞态，均在回归前修复。开发过程详见 decisions.md。
+### 第一轮修复的问题
+
+- 端到端脚本的班级命名断言会受**自身测试数据**影响：`[1]` 的「班级采用 `XXXX级-XX专业-XX班` 的形式」在同一次运行中会看到 `[2]` 刚建的测试班级，而它当时用的是非规范名称，因此第二次运行时该断言失败；同时测试结束后新建的测试学院/专业/班级会残留在演示库里。修复方式是把测试班级改名成规范形式 `2026级-测试专业-<stamp>班`，并在 `[12]` 按「班级 → 专业 → 学院」顺序删除本次新建的三个组织对象（顺序不能颠倒，后端会拒绝删除仍有下级的对象）。`[12]` 因此由 2 条变为 5 条，脚本总计 114/114 通过（第一轮演示库规模为 2 学院 / 4 专业 / 6 班级，第二轮已扩充）。
+- 同一学期只允许一个使用某课程代码的教学班（`CourseService.saveCourse` 的 `(code, term)` 唯一性校验）使「不同教师开设同一门课、由学生选择」无法验收：端到端脚本第一次运行 108/112，4 条失败全部落在该场景。移除该限制后，重复修读改由 `SelectionService.codeHistory` 在选课环节拦截，该场景 4 条全部通过（当时的脚本总数为 111/111，后续补充清理断言后总数为 114/114）。
+- 演示库重建后，旧 EVM 锚点会让重新锚定因 `Anchor conflict`（同一下标出现不同哈希）失败：`LedgerService.reset()` 现在先调用 chain-worker 的 `POST /reset` 清空锚点再清空账本；业务库、独立账本与链锚点因此一起重建。
+- 注册发现 URL 序列化、TLS 信任库、EVM 重启账户、OCR WebAssembly CSP、停用学生退选、加载期间课程切换竞态，均在回归前修复。开发过程详见 decisions.md。
+
+### 第二轮修复的三个缺陷
+
+第二轮在实现 8 条修正的过程中发现并修复了 3 个真实缺陷，三者都不是「测试没过就改断言」，而是先定位到实现本身的错误：
+
+|#|缺陷|现象与影响|修复|
+|---:|---|---|---|
+|1|48 名学生的 `college_id` 被写成**专业编号**|`DemoInitializer` 用 `find(CLASSES, classId).parent()` 取学院，而 `Org.parent()` 返回上一级编号——班级的 parent 是专业，于是学生的学院字段全是 `M01xxx`。列表页看不出异常，但选课范围校验 `inScope` 比较的是 `college_id`，导致学生选课一律 403「你不在此次选课范围内」|学院一律走「专业 → 学院」反推（`major.parent()`）；新增 `DemoInitializer.verifyOrganizationIntegrity()`，灌数结束时逐行校验三级归属与「管理员无组织」，不合法直接抛异常中止启动|
+|2|登录后的身份行**没有组织信息**|`App.vue` 的 `login()` 使用 `POST /login` 返回的 user（只含 `id`/`username`/`name`/`role`/`permissions`），而 `collegeName`/`majorName`/`className` 只有 `GET /me` 才返回；于是「登录后立即看」与「刷新页面后看」身份行不一致|登录成功后立即补一次 `api("/me")` 再进入应用初始化；浏览器检查新增教师/学生身份含三级组织、管理员不含组织且不出现 `null` 的断言|
+|3|`SchemaCatalog.wasRebuilt()` **语义错误**|空库首次建表时它也返回 `true`，把「首次建表」误报成「丢弃了已有数据」，使初始化日志与 `DemoInitializer` 的判断产生误导|仅当「库里原有业务数据、且因结构版本不匹配被删除」时返回 `true`，新增 `hasBusinessRows()` 判定；`SchemaCatalogTest` 增加结构版本过期重建与补列迁移两条回归用例|
+
+这三处修复后（第二轮修订上）重跑：Java 单元测试 234/234、端到端 156/156、浏览器 35/35；第三轮在同一批用例上更新契约后重跑为 230/164/44（见上文汇总表）。无论哪一轮，下一次整库重建时都会由启动自检拦住同类「层级写错」的问题。
 
 ## 覆盖边界
 
@@ -122,8 +354,223 @@ Ganache 7.9.2 捆绑部分依赖，兼容修复后仍有 elliptic、secp256k1、
 - 控制篡改测试修改本项目合成数据后完整恢复，当前业务库、独立账本和链摘要重新校验通过。
 - 预测和日志模型实测包括训练与推理，不代表真实学校数据上的泛化准确率。
 - 当前未实现分布式全局 nonce/限流、审计单写故障自动恢复、生产自动密钥轮换。
+- 组织编号只有主键 `id`（第三轮起）：`colleges`/`majors`/`classes` 表里遗留的 `code` 列不再被接口读写，也没有唯一索引；端到端脚本在第三轮改为断言「列表/下拉不含 `code` 字段」「新建响应只含 `ok` 与 `id`」。
+- 重修判定只依据**已提交的历史成绩**（更早学期 + 同一课程代码 + `SUBMITTED` + 有效分 < 60）：正在修读（成绩未提交）与已退课都不算；当前学期（2026-1）重修班的成绩未提交属于预期状态，由教师登录后现场录入。判定是派生值而非持久化字段，因此没有任何「重修报名/审批」流程被测试覆盖（该流程本就不存在）。
+- 系数表缺项的处理（第四轮修复）：`Models.total` 现在把缺失系数当 0 权重，不再抛异常让整门课变成「无成绩」；单测覆盖了该分支，端到端脚本未单独构造「weights 不全」的课程行（那属于脏数据场景）。
+- 学业记录的重修判定口径（第五轮）：只看「同一课程代码在更早学期是否还有记录」，不再重复判断上一次是否挂科——它依赖「已通过不得重选」的选课规则与 `verifyTranscriptIntegrity()` 自检保证数据里不存在「通过后又重修」的脏数据；若有人绕过业务规则直接写库造出这种数据，记录会被标成重修而不报错（边界已在 [decisions.md](decisions.md) 说明）。
+- 预测只对**进行中的课程**有意义（第五轮）：对本人的已出分历史课程调用 `/predict` 会返回 200 但 `results` 为空（预测对象是「期末未录入」的学生）。这是接口语义而非缺陷，前端已给出明确引导文案；端到端脚本因此**逐门课**调用 `/predict` 校验「有选课的课程都可预测」，而不是只抽查一门。
+- 演示数据的历史样本教学班（`SAMPLE_COURSES`，`seed-history` 任课、只写成绩不写选课）不在任何教师/学生的课程列表里，因此它们不会成为「需要可预测」的课程（避免无限回归）；这一约束由 `verifyPredictionCoverage()` 与数据构造共同保证，测试脚本未对「样本班不出现在课程下拉」单独断言。
+- 「按课程批量选课」不校验批次时间窗口与 `allow_add`/`allow_drop`，因此它不是「学生自助选课」的等价路径；其权限边界只有 `GRADE_ADMIN` 与审计账本两层，未做限流或频率控制。
+
+## 组织管理与网上选课功能测试（第五轮 201 条；第四轮 183 条、第三轮 164 条、第二轮 156 条记录）
+
+「学院—专业—班级三级组织管理」与「网上选课系统」由 `scripts/feature-test.mjs` 端到端验证。脚本通过网关 `https://localhost:8443/api` 发起与浏览器完全相同的请求（GET 走 query 串，POST 走 JSON + `X-CSRF-Token`），并在结束时把逐条结果写入 `.runtime/logs/feature-test.json`。第二轮给脚本补了编号规则、管理员无组织、班级无辅导员与按课程批量选课的断言，第三轮换成「编号即主键」口径，第四轮再补 19 条重修语义断言（见上文「第四轮（R4）说明」）。第一轮在同一脚本上的记录（114/114）见本节末尾的「第一轮历史记录」。
+
+**前置条件**：四个 Java 服务与 chain-worker 已按 README 启动；数据库由 `DemoInitializer` 按 `SchemaCatalog.SCHEMA_VERSION = 3` 整库重建为 4 学院 / 8 专业 / 16 班级 / 65 账号 / 32 教学班；网关地址可用环境变量 `GATEWAY_URL` 覆盖。
+**执行命令**：`node scripts/feature-test.mjs`（失败条数不为 0 时进程以非零码退出）
+
+### 结果（第二轮记录）
+
+**第二轮实际执行结果：156 / 156 通过，0 失败**，当时的证据文件记录 `total=156`、`passed=156`、`failed=0`、`generatedAt = 2026-10-03T13:36:28.679Z`（本机 21:36:28），网关 `https://localhost:8443`，在第二轮冻结修订 + 全新重建的演示库上运行。**该文件随后被第三、四、五轮的运行依次覆盖**：当前 `.runtime/logs/feature-test.json` 记录的是**第五轮扩充到 201 条**后的结果（`total=201`、`passed=201`、`failed=0`、`generatedAt = 2026-10-03T16:35:09.260Z`；第四轮 183 条 `15:30:37.184Z`、第三轮 164 条 `14:38:12.166Z`），下表是第二轮 156 条的分组快照（历史记录，不代表当前值）。
+
+|分组|断言数|通过|失败|
+|---|---:|---:|---:|
+|[0] 服务可达性与登录|9|9|0|
+|[1] 组织数据初始化（多学院、多专业、多班级）|20|20|0|
+|[2] 组织管理：新建 → 层级校验 → 编号规则 → 删除保护|22|22|0|
+|[3] 编号确定后不可修改 + 组织敏感操作进入审计|4|4|0|
+|[4] 课程开设院系与学期唯一性|6|6|0|
+|[5] 教务发布选课信息|8|8|0|
+|[6] 选课鲁棒性校验（发布阶段）|6|6|0|
+|[7] 学生选课：窗口与范围校验|13|13|0|
+|[8] 鲁棒性：不同教师的同一门课 / 已通过课程不得重选|10|10|0|
+|[9] 教务按课程批量选课（1 人 / 多人 / 整班）与退课保护|18|18|0|
+|[10] 最低开课人数不满足时自动退回|18|18|0|
+|[11] 权限边界与跨域保护|6|6|0|
+|[12] 清理测试数据|16|16|0|
+|**合计**|**156**|**156**|**0**|
+
+> 分组标题取自 `scripts/feature-test.mjs` 里的 `console.log("\n[n] …")` 输出标记，断言数为该次运行的实际结果条数；总数 156 与证据文件 `total`/`passed` 一致（9+20+22+4+6+8+6+13+10+18+18+6+16 = 156），可逐项复算。
+>
+> 本轮同样不做任何结果推演：通过与失败数直接取自 `.runtime/logs/feature-test.json` 的逐条 `results[].ok`（该文件不记录分组字段，分组归属按脚本执行顺序与分组标题对应）。未覆盖的场景见本节末尾「未由本脚本覆盖的部分」。
+
+### 第二轮新增断言的证据样例
+
+脚本把关键响应写入每条结果的 `detail`，可从证据文件直接核对第二轮的新行为（编号相关的三行已按第三轮的实现更新，见括注）：
+
+|断言|证据里的实际值|
+|---|---|
+|班级列表不含辅导员字段|`["id","major_id","college_id","name","grade_year","code","enabled","version","shortName","short_name","gradeYear","collegeName","majorName","studentCount"]`|
+|管理员没有被分配组织|`status=400 message=管理员不归属学院/专业/班级`|
+|单学生按课程批量选课|`{"ok":true,"added":1,"skipped":0,"removed":0,"failed":[],"total":1}`|
+|整班按课程批量选课|`{"ok":true,"added":2,"skipped":1,"removed":0,"failed":[],"classStudents":3,"total":3}`|
+|重复批量选课全部跳过|`{"ok":true,"added":0,"skipped":3,"removed":0,"failed":[],"classStudents":3,"total":3}`|
+|批量选课后名单人数增加|`before=2 after=4`，名单项带 `className`（`2023级-软件工程-2301班`）|
+|已有成绩的学生批量退课进 `failed`|`{"failed":[{"studentId":"20231539","reason":"教师已录入成绩，不能退课","name":"吴星野"}]}`|
+|既不给学生也不给班级被拒绝|`status=400 message=必须指定学生名单或班级`|
+|学生调用批量选课被拒绝|`status=403 message=没有此操作权限`|
+
+第三轮把脚本扩充到 164 条后，编号相关的断言换成「编号即主键」的口径，可从 `.runtime/logs/feature-test.json` 里直接读到：学院/专业/班级列表与三级下拉**都不含 `code` 字段**；新建学院/专业/班级返回的是 `C`/`M`/`B` + 5 位主键；新建响应**只含 `ok` 与 `id`**；请求体里带 `code` 或不符的 `id` 不影响生成与主键；修改后主键保持不变、仍能按原 `id` 找到该对象。
+
+### 文档核对时的只读 API 抽查
+
+在冻结修订 + 重建后的演示库上，另做了一次**只读**抽查（`POST /api/login` 取会话后只用 GET，不写入任何数据），用于核对本文档中与种子数据规模相关的数字：
+
+|抽查|实际返回|
+|---|---|
+|`GET /users?size=300`|65 个账号：`STUDENT` 51、`ADMIN` 3、`TEACHER` 11|
+|`GET /organizations/options`|4 学院 / 8 专业 / 16 班级；学院 `code` = `01,02,03,04`|
+|班级项是否含辅导员字段|不含（`classes[0]` 没有 `counselor` 键）|
+|管理员 `GET /me`|`collegeId`/`majorId`/`classId` 与 `collegeName`/`majorName`/`className` 均为 `null`|
+
+这四组结果与当时（第三轮）的 feature 脚本断言一致，也与当时文档、README 里写的 4 学院 / 8 专业 / 16 班级 / 65 账号 / 32 教学班相符。这是**第三轮的抽查快照**，未在第四轮重跑；第四轮把教学班扩到 35 个并新增重修样本，`DemoInitializer` 的类注释也已同步更新（不再是旧规模），种子数据的当前口径见下文「第四轮（R4）说明」与 [配置说明](configuration.md)。
+
+### 第一轮历史记录
+
+第一轮脚本共 13 个分组、114 条断言，全部通过。第一轮曾出现一次 4 条失败：第一次执行（`2026-10-03T09:23:01.344Z`）结果是 **108/112**，4 条全部集中在「不同教师的同一门课」——当时 `CourseService.saveCourse` 强制 `(code, term)` 唯一，同一学期只允许一个使用该课程代码的教学班，导致「必修课由不同教师分别开课、学生选择其中一位」这一场景无法构造：
+
+|失败条目|当时的现象|
+|---|---|
+|创建同课程代码不同教师的教学班|409「该学期已存在相同课程代码的教学班」|
+|同代码不同教师教学班已创建|拿到空对象|
+|把两个同代码教学班放进同一批次|因上一条失败而缺少批次编号|
+|不允许选择不同教师开设的同一门课（按课程代码判定）|未能构造出该场景|
+
+随后 `CourseService.saveCourse` 移除该唯一性校验，重复修读改由 `SelectionService.codeHistory` 在选课环节拦截（同一学期同代码的其他教学班 409、此前学期已通过 409），重跑后该场景全部通过。该取舍已记入 [decisions.md](decisions.md)。第二轮初始化数据进一步把它固化成可复现的样本：2025-1 的两门 `CS401` 教学班分别由陈老师与李老师开设。
+
+### 覆盖范围
+
+|分组|覆盖内容|
+|---|---|
+|[0] 服务可达性与登录|admin、t1101、t2101、20241530、20241536、20231530 六个演示账号登录；`/me` 返回学院/专业/班级的编号与名称；学生归属到具体班级（`classId=B01002`）；**管理员的三级组织编号全为 `null`**|
+|[1] 组织数据初始化|`/organizations/options` 返回 4 学院 / 8 专业 / 16 班级；`/organizations` 三级列表；学院带专业/班级/学生计数，专业带学院名，班级带学院与专业名；主键格式 `C\d{5}`/`M\d{5}`/`B\d{5}`；班级项**不含 `counselor`**；班级名形如 `2023级-软件工程-2301班`（第三轮起列表与下拉**都不含 `code` 字段**）|
+|[2] 组织管理|按名称新建学院/专业/班级并返回主键 `id`（`C`/`M`/`B` + 5 位）；新建编号沿用「同层最大 + 1」的号段规则；同级编号无重复；**新建响应只含 `ok` 与 `id`**；同级重名 400；缺上级 400；班级与专业不匹配 400；`/organizations/impact` 返回影响面；有账号的班级与有课程的学院删除 409；**把管理员调整到组织被 400 拒绝**|
+|[3] 编号不可修改与审计|修改学院时请求体带另一个 `id` 与 `code`，修改后主键不变、仍能按原 `id` 找到该对象、名称已生效；账本中存在组织管理的审计事件且带 `before`/`after` 快照|
+|[4] 课程与学期|课程目录（第二轮快照为 32 门）全部带 `collegeName`；至少两个学院开设课程；**初始化数据**中同一学期没有重复课程代码；初始化数据中同一学生不在两个学期修读相同课程代码|
+|[5] 发布选课|`/courses/save` 建测试教学班；`/selections/save` 发布批次并返回批次编号；列表含 `courseCount`/`selectedCount`/`status=OPEN`/`statusName`|
+|[6] 发布阶段鲁棒性|已有成绩的课程 409「该课程已有教师录入成绩，不能发布选课」；同一课程不能出现在两个进行中发布 409；结束早于开始 400；`minEnroll` 越界 400；学生发布 403|
+|[7] 学生选课|窗口未开始 400；范围外学生 403「你不在此次选课范围内」；`/selections/available` 的 `courses[]` 带教师/学院名与 `eligible`/`reason`；选课成功后出现在 `/selections/my` 且带 `source`；重复选课 409|
+|[8] 课程代码规则|同一批次内选择另一位教师的同代码课程被 409 拒绝；初始化数据含 `20231530` 的挂科与重修两条记录（第四轮起重修样本扩为 5 名学生 / 3 个课程代码，见「第四轮（R4）」小节）；此前学期已通过的同一门课不得重选 409|
+|[9] 按课程批量选课|`POST /enrollments/batch` 单人（`added=1`）、整班（`classStudents=3`）、并集去重；批量后 `/roster` 人数增加且带 `className`；重复批量全部进 `skipped`；两者都不给 400；学生调用 403；**已有成绩的学生批量退课进 `failed` 而其他人成功**；教务代退有成绩的学生 409；学生自助退课后从 `/selections/my` 消失|
+|[10] 自动退回|为低人数场景单独建课并发布高 `minEnroll` 批次；学生选入；`/selections/settle` 返回被取消课程与 `refunded`；退回后从 `/selections/my` 移除；`/selections/records` 含 `SELECT`/`DROP`/`AUTO_REFUND`/**`ADMIN_ASSIGN`** 且带学生姓名与课程名称；账本含 `SELECTION_PUBLISH`/`SELECTION_SELECT`/`SELECTION_DROP`/`SELECTION_SETTLE`|
+|[11] 权限与跨域|学生读 `/selections` 403、批量选课 403、新建学院 403；教师读 `/organizations` 403；未登录 401；伪造 `Origin` 被网关 403|
+|[12] 清理|关闭并取消测试批次；按「清理测试班级 → 清理测试专业 → 清理测试学院」顺序删除本轮新建的组织对象（顺序不能颠倒，后端会拒绝删除仍有下级的对象）；逐个清理测试教学班（`TL573887`/`CS102`/`TB573887`×2/`TA573887`）的选课名单，保证测试结束后演示数据仍是干净的 4 学院 / 8 专业 / 16 班级|
+
+### 未由本脚本覆盖的部分
+
+- **浏览器交互**：本脚本只走 HTTP 接口，不点击页面。另有 `scripts/browser-check.mjs` 做真实浏览器渲染验证（见下一节），以及第三轮新增的 `scripts/verify-sidebar-resize.mjs`（结果写入 `.runtime/logs/sidebar-resize-check.json`）做侧栏拖动的专项检查；它们覆盖导航顺序、身份行、侧栏拖动与选课弹窗的可见性，但不提交弹窗表单。
+- **定时自动结算**：`SelectionService.autoSettleExpired` 的调度周期是 60 秒，脚本执行期间通常不会触发，因此脚本验证的是显式 `POST /selections/settle`；定时任务只通过源码审查确认，未做实际计时验证。
+- **编号耗尽（号段 99 / 本级 999）**：构造 99 个组织会污染演示库，端到端脚本未做该场景，只在 `OrganizationServiceTest.nextIdRejectsExhaustedLevel` 用 mock 覆盖（第三轮已随 `nextCode` 一起删除对应的两位数用尽用例）。
+- **并发与规模**：同一学生的并发选课、数百人同时选课、跨批次并发结算均未测试；`enrollments(course_id,student_id)` 唯一索引是唯一的并发兜底。
+- **组织与选课的 RPC 层**：脚本只走浏览器入口，内部 `Selection`/`Mutation` 协议的新表字段没有单独的注入或异常用例。
+- **管理员无组织的完整路径**：脚本覆盖了「管理员不能被分配到组织」（`/organizations/assign` 400）与「`/me` 返回 `null`」，`POST /users/save` 给管理员传组织的 400 分支由 `AdminServiceTest` 覆盖。
+## 真实浏览器检查（第五轮 57 条；附第四轮 50 条、第三轮 44 条与第二轮 35 条对照）
+
+`scripts/browser-check.mjs` 用 Playwright 驱动真实浏览器，验证登录页、按角色的导航、身份行、侧栏宽度调节、合并后的选课管理页、按课程选课弹窗、重修徽标、学业记录的「我的成绩」与学业预警页的渲染，结果写入 `.runtime/logs/browser-check.json`，截图落在 `test-results/browser/`。
+
+**第五轮冻结修订上实测 57 / 57 通过、0 失败**（`generatedAt = 2026-10-03T16:36:25.085Z`，本机 00:36:25）。历史对照：第四轮 50 / 50（`15:31:12.652Z`）、第三轮 44 / 44（`14:38:54.625Z`）、第二轮 35 / 35（`13:37:05.939Z`）。基址都是 `https://127.0.0.1:5173`（前端 Vite 开发服务器，不是网关 8443），三种身份（管理员 / 教师 / 学生）全部覆盖。
+
+第五轮新增 7 条断言（第 49–55 条，逐条见上文「第五轮（R5）说明」的浏览器小节）：`「我的成绩」显示重修徽标`、`两行课程名一致且不含重修后缀`、`有 2 行程序设计基础（挂科 + 重修）`、`学业预警页有生成预测按钮`、`学业预警不再提示「数据不足」`、`学业预警给出训练年份与样本数`、`学业预警渲染出预测结果行`；第 56、57 条仍是「无未捕获页面错误」「无致命控制台错误」。
+
+以下为更早轮次的断言记录（历史对照）：
+
+第四轮新增 6 条断言（在第三轮 44 条的基础上）：
+
+|#|第四轮新增断言|结果|
+|---:|---|---|
+|45|学生端显示重修徽标|PASS|
+|46|课程名不含中文括号的「重修」后缀|PASS|
+|47|重修徽标出现在「程序设计基础（CS102）」那一行|PASS|
+|48|教师课程下拉能找到 2026-1 的重修班|PASS|
+|49|教师端名单标出重修学生|PASS|
+|50|教师端课程名同样无重修后缀|PASS|
+
+下表是**第二轮 35 条**的逐条记录（历史对照）：其中已被第三轮替换的条目（侧栏第 9–13 条、组织编号第 25 条）**以本节下方的第三轮断言为准**；第三轮与第四轮的新增断言见下方列表，均不代表 35 条是当前状态。
+
+|#|检查|结果|
+|---:|---|---|
+|1|登录页不再出现硬编码学院名|PASS|
+|2|管理员登录成功|PASS|
+|3|管理员导航顺序正确且「安全审计」在最后|PASS|
+|4|管理员导航不再有「课程与选课」|PASS|
+|5|管理员导航不再有独立的「网上选课」|PASS|
+|6|顶栏/页脚不再出现硬编码学院名|PASS|
+|7|管理员身份只显示角色、不含组织|PASS|
+|8|身份行为空组织时不显示 null|PASS|
+|9|存在侧栏宽度调节按钮（第二轮为折叠按钮，第三轮改为拖拽手柄）|PASS|
+|10|侧栏宽度可调窄（第二轮实测 `216 -> 68`）|PASS|
+|11|调窄后无横向滚动条（`overflow=0px`）|PASS|
+|12|窄栏时导航按钮仍有悬浮提示|PASS|
+|13|可恢复到原宽度（`68 -> 216`）|PASS|
+|14|选课管理页含「课程与选课 / 选课批次 / 选课记录」三个入口|PASS|
+|15|选课管理页能看到课程列表|PASS|
+|16|课程列表每行有「选课」按钮（`count=37`）|PASS|
+|17|「选课」按钮打开按课程选课弹窗|PASS|
+|18|弹窗可同时按学生与整班处理|PASS|
+|19|按课程选课弹窗可正常关闭|PASS|
+|20|组织管理页加载学院数据|PASS|
+|21|组织管理页不出现「辅导员」|PASS|
+|22|班级标签显示规范班名|PASS|
+|23|班级标签不出现「辅导员」|PASS|
+|24|组织管理页存在「新建班级」按钮|PASS|
+|25|新建班级表单的组织编号字段只读展示（第三轮已删除该输入框）|PASS|
+|26|教师身份显示「教师 · 学院 · 专业」|PASS|
+|27|教师身份不含班级、不含 null|PASS|
+|28|学生导航只有「网上选课」入口|PASS|
+|29|学生导航不出现「组织管理」|PASS|
+|30|学生身份显示「学生 · 学院 · 专业 · 班级」|PASS|
+|31|学生身份不含 null|PASS|
+|32|学生选课台渲染（含「我的选课」）|PASS|
+|33|学生选课页无页面级横向溢出（`overflow=0px`）|PASS|
+|34|浏览器无未捕获的页面错误|PASS|
+|35|浏览器无致命控制台错误|PASS|
+
+第三轮替换/新增的断言（当前证据文件里的实际名称与关键 detail）：侧栏部分为「原来的折叠按钮已移除」「存在侧栏宽度拖拽手柄」「向右拖动可加宽侧栏并实时生效（`216 -> 326`）」「主内容区左边距同步跟随（`margin=326 w=326`）」「向左拖动可收窄到最小 68px（仅图标档）」「仅图标档隐藏导航文字」「仅图标档导航按钮仍有悬浮提示」「收窄后无横向滚动条（`overflow=0px`）」「拖过的宽度写入 localStorage」「刷新后宽度保持（`w=68`）」「双击手柄恢复默认 216px」；编号部分为「学院列表展示主键编号（C + 5 位）」「班级列表展示主键编号（B + 5 位）」「新建班级表单不再有『编号』输入框」「新建班级表单只剩班名/年级等业务字段」。
+
+其中导航顺序的实测值直接来自页面文本：管理员为 `["课程成绩","统计分析","人员与权限","组织管理","选课管理","安全审计"]`（第 3 条断言「安全审计」在最后，第 4、5 条断言旧的「课程与选课」「网上选课」两个入口都已消失）；教师身份为 `教师 · 信息工程学院 · 软件工程`；学生身份为 `学生 · 信息工程学院 · 软件工程 · 2024级-软件工程-2401班`；管理员身份为 `管理员`（不含 `·`，也不含 `null`/`undefined`）。
+
+**覆盖与边界**：该检查覆盖登录页文案、按权限的导航可见性与顺序、身份行文本（含空组织过滤）、侧栏宽度调节（拖动实时生效、主内容左边距跟随、仅图标档的 `title` 提示、localStorage 持久化与刷新保持、双击复位、`overflow=0px`）、合并后「选课管理」的三标签页与课程列表、按课程选课弹窗的打开/关闭与「学生 + 整班」两种处理方式、组织管理页（无辅导员、列表显示主键编号、表单无编号字段、规范班名）、学生选课台渲染，以及页面级错误与控制台致命错误。它**不覆盖**写操作的实际提交（选课弹窗只验证打开与关闭，不点击提交；组织的新增/删除、批次发布与结算也不在浏览器层点击），这些由 `scripts/feature-test.mjs` 从接口层覆盖；分页交互与表单校验文案仍需人工验证。基址为 Vite 开发服务器，网关 8443 上的打包页面只有接口层被 feature 脚本覆盖。
+
+同一组修订上还生成了界面截图供人工查看，保存在 `test-results/browser/`：
+
+- [org-colleges.png](../test-results/browser/org-colleges.png)、[org-classes.png](../test-results/browser/org-classes.png)（组织管理学院/班级页，第二轮截图；第三轮刷新时间为 22:33:04）
+- [selection-admin.png](../test-results/browser/selection-admin.png)、[selection-student.png](../test-results/browser/selection-student.png)（合并后的「选课管理」页、学生选课台）
+- [enroll-dialog.png](../test-results/browser/enroll-dialog.png)（每门课程「选课」按钮打开的按课程选课弹窗）
+- [sidebar-admin.png](../test-results/browser/sidebar-admin.png)、[sidebar-teacher.png](../test-results/browser/sidebar-teacher.png)、[sidebar-student.png](../test-results/browser/sidebar-student.png)（三种身份的身份行文本）
+- [sidebar-collapsed.png](../test-results/browser/sidebar-collapsed.png)（第二轮：折叠后的窄栏，历史截图）
+- [sidebar-resized-wide.png](../test-results/browser/sidebar-resized-wide.png)、[sidebar-resized-compact.png](../test-results/browser/sidebar-resized-compact.png)、[sidebar-resized-icononly.png](../test-results/browser/sidebar-resized-icononly.png)、[sidebar-resized-icon-only.png](../test-results/browser/sidebar-resized-icon-only.png)、[sidebar-resized-persisted.png](../test-results/browser/sidebar-resized-persisted.png)（第三轮：拖动到宽栏 / 紧凑档 / 仅图标档 / 刷新后保持宽度）
+- [org-form-no-code.png](../test-results/browser/org-form-no-code.png)、[org-created-by-id.png](../test-results/browser/org-created-by-id.png)（第三轮：新建表单已无编号输入框、新建回执给出主键编号）
+- [selection-student-live.png](../test-results/browser/selection-student-live.png)（由 `scripts/capture-selection.mjs` 生成：教务临时发布一个生效批次 → 学生打开选课台 → 截图 → 清理批次）
 
 ## 复现顺序
+
+本轮实际执行的命令与顺序如下（离线 Maven 与 Node 均可直接运行）：
+
+```text
+mvn -o clean package                  # 248 条 Java 单元测试，第五轮冻结修订上实测全绿
+# 由 scripts/start.ps1（或 scripts/start.sh）启动四个 Java 服务与 chain-worker
+node scripts/feature-test.mjs         # 端到端断言 201 条（第五轮；第四轮为 183 条）
+# 另开前端开发服务器（默认 https://127.0.0.1:5173）后：
+node scripts/browser-check.mjs        # 真实浏览器检查 57 条（第五轮；第四轮为 50 条）
+node scripts/verify-sidebar-resize.mjs # 侧栏拖动专项检查 28 条（见 .runtime/logs/sidebar-resize-check.json）
+node scripts/capture-selection.mjs    # 生成学生选课台截图（可选，用于人工查看）
+node scripts/junit-summary.mjs        # 汇总各模块 surefire 报告为 .runtime/logs/junit-summary.json
+node scripts/generate-docs.mjs --check
+```
+
+单测汇总证据 `.runtime/logs/junit-summary.json` 由各模块 `target/surefire-reports/TEST-*.xml` 汇总而来（`mvn -o clean package` 之后运行 `scripts/junit-summary.mjs` 生成），第五轮记录总数为 248、失败 0，`generatedAt = 2026-10-03T16:37:16.839Z`；历史记录：第四轮 243、第三轮 230、第二轮 234（见上文各历史小节）。<br>
+
+**跑完端到端脚本后的演示库清理**：`feature-test.mjs` 会在测试学期 `2027-2` 新建教学班并在 `[12]` 把学生全部退回，
+但**不会删除这些教学班**（系统没有删除课程的接口，教务用「取消教学班」下架课程）。因此反复运行后，课程下拉里会堆积
+学期为 `2027-2` 的测试课程——它们不影响任何断言（演示数据集中在 `2023-1`–`2026-1`），但会让界面变乱。
+要恢复干净的演示数据，重建一次库即可：
+
+```powershell
+.\scripts\start.ps1 -ResetDb      # 重新灌入 4 学院 / 8 专业 / 21 班级 / 206 账号 / 155 教学班 / 626 选课 / 1445 成绩 + 5 名重修学生 + 64 门可预测课程
+```
+
+重建后可通过 data-service 启动日志确认（`[DemoInitializer] 成绩单自检通过：5 名重修学生（3 个课程代码）…`）。<br>
+原始交付记录的完整回归流程为：
 
 ```text
 mvn verify
@@ -132,7 +579,10 @@ node scripts/workflow-test.mjs
 node scripts/tamper-test.mjs
 node scripts/scale-test.mjs
 npm --prefix frontend run test:e2e
-node scripts/generate-docs.mjs --check
 ```
 
-测试共享同一演示数据库，应按顺序执行。tamper-test 会停止并重新启动服务，scale-test 会临时启动第二业务副本，不能与写入或浏览器测试并发。Playwright 首次需安装浏览器：在 frontend 目录执行 `npx playwright install chromium`，或设置 BROWSER_EXECUTABLE 指向已安装的 Chromium。
+> 需要说明的是：当前源码树的 `scripts/` 目录只包含 `browser-check.mjs`、`capture-selection.mjs`、`feature-test.mjs`、`generate-docs.mjs`、`SourceInventory.java`、`setup.mjs`、`start.sh` 与 `start.ps1`。上面第二段里的 `api-test.mjs`、`workflow-test.mjs`、`tamper-test.mjs`、`scale-test.mjs` 在本次交付的源码树中**不存在**，`docs/evidence/` 目录也不存在；`npm --prefix frontend run test:e2e` 所需的 Playwright 用例亦未随源码提供（本轮的浏览器验证改由 `scripts/browser-check.mjs` 承担，截图在 `test-results/browser/`）。因此本轮的验证证据只以 `mvn -o clean package` 的 surefire 报告与 `junit-summary.json`、`feature-test.mjs`、`browser-check.mjs` 的输出为准；第二段描述的是历史回归流程，不是本次实际执行的命令清单。
+>
+> Windows 下启动服务请使用 `scripts/start.ps1`：PowerShell 会把 `-Dcampus.reset-db=true` 这类参数拆坏，脚本用参数数组直接调用 `java`；需要整库重建时先设置 `CAMPUS_RESET_DB=true` 或使用该脚本的重建开关。
+
+测试共享同一演示数据库，应按顺序执行。tamper-test 会停止并重新启动服务，scale-test 会临时启动第二业务副本，不能与写入或浏览器测试并发。Playwright 首次需安装浏览器：在 frontend 目录执行 `npx playwright install chromium`，或设置 BROWSER_EXECUTABLE 指向已安装的 Chromium（本机实测使用 `BROWSER_EXECUTABLE` 指向已安装的 Edge）。
