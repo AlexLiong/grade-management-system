@@ -9,7 +9,8 @@ import org.junit.jupiter.api.Test;
 
 class AdminServiceTest {
   private final RemoteRepository repo = mock(RemoteRepository.class);
-  private final AdminService service = new AdminService(repo);
+  private final OrganizationService organizations = mock(OrganizationService.class);
+  private final AdminService service = new AdminService(repo, organizations);
 
   @Test
   void usersRequiresUserAdmin() {

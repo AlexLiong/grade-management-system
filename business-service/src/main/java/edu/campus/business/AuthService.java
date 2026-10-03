@@ -100,8 +100,21 @@ public class AuthService {
                 u.get("username").toString(),
                 u.get("name").toString(),
                 u.get("role").toString(),
-                new HashSet<>(Arrays.asList(u.get("permissions").toString().split(","))),
-                Models.integer(u.get("version")));
+                permissionSet(u.get("permissions")),
+                Models.integer(u.get("version")),
+                text(u.get("college_id")),
+                text(u.get("major_id")),
+                text(u.get("class_id")));
+    }
+
+    /** 权限列的逗号分隔解析：空值表示无任何功能权限。 */
+    public static Set<String> permissionSet(Object raw) {
+        if (raw == null || raw.toString().isBlank()) return Set.of();
+        return new HashSet<>(Arrays.asList(raw.toString().split(",")));
+    }
+
+    private static String text(Object value) {
+        return value == null || value.toString().isBlank() ? null : value.toString();
     }
 
     public void logout(HttpServletRequest request, HttpServletResponse response, Models.User u) {
