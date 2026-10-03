@@ -235,6 +235,8 @@ public class AnalyticsService {
       var w = Models.object(c.get("weights"));
       for (var g : grades) {
         var s = Models.object(g.get("payload"));
+        // 预测的是「期末还没考」的学生：需要已有平时与实验成绩、且期末试卷分尚未录入。
+        // 反过来写（要求 finalExam 非空）会一个学生都筛不出来，页面上永远看不到预测结果。
         if (s.get("regular") == null || s.get("lab") == null || s.get("finalExam") != null)
           continue;
         Instance x = instance(train, Models.number(s.get("regular")), Models.number(s.get("lab")));

@@ -107,6 +107,9 @@ public class GradeService {
             }
         Double total = Models.total(s, weights);
         if (complete) ApiException.require(total != null, 400, "所有有权重的成绩项必须完整后才能提交");
+        // 补考只对正考不及格的学生开放：正考总评已达到 60 分以上时不允许再录补考。
+        if (s.get("makeup") != null)
+            ApiException.require(total != null && total < 60, 400, "正考已及格，不能录入补考成绩");
     }
 
     public void transition(Models.User u, Map<String, Object> b) {
@@ -124,10 +127,12 @@ public class GradeService {
         ApiException.require(!grades.isEmpty(), 409, "课程没有成绩");
         var weights = Models.object(c.get("weights"));
         if (action.equals("SUBMIT")) {
-            ApiException.require(
-                    grades.size() == repo.find("enrollments", Map.of("course_id", id)).size(),
-                    400,
-                    "必须录入所有选课学生的成绩");
+            // 只要求“在读”学生全部录入：退课记录不会再有成绩，不应阻塞提交。
+            var active =
+                    repo.find("enrollments", Map.of("course_id", id)).stream()
+                            .filter(e -> !"DROPPED".equals(e.get("status")))
+                            .count();
+            ApiException.require(grades.size() == active, 400, "必须录入所有选课学生的成绩");
             for (var g : grades) {
                 ApiException.require(g.get("state").equals("DRAFT"), 409, "课程成绩已提交");
                 validateScores(Models.object(g.get("payload")), weights, true);
@@ -161,6 +166,13 @@ public class GradeService {
         repo.mutate(ops, u.id(), action, id + (admin ? ":" + b.get("reason") : ""));
     }
 
+    /**
+     * 学生本人的学业记录（只含**已提交**成绩）。
+     *
+     * <p>重修不体现在课程名上：同一个课程代码在「挂科学期」与「重修学期」是同一门课，
+     * 所以这里按「同一课程代码在更早学期是否已提交且不及格」给每条记录标出 {@code retake}，
+     * 学生端据此显示「重修」状态（见 {@code App.vue} 的「我的成绩」表）。
+     */
     public List<Map<String, Object>> transcript(Models.User u) {
         ApiException.require(u.role().equals("STUDENT"), 403, "仅学生可查看本人学业记录");
         u.require("QUERY");
@@ -195,6 +207,47 @@ public class GradeService {
                     result.add(row);
                 }
         }
+        markRetakes(result);
+        // 学期倒序、同学期按课程代码，便于「我的成绩」直接展示最近的修读。
+        result.sort(
+                Comparator.comparing(
+                                (Map<String, Object> r) -> blank(r.get("term")) == null ? "" : blank(r.get("term")),
+                                Comparator.reverseOrder())
+                        .thenComparing(r -> blank(r.get("code")) == null ? "" : blank(r.get("code"))));
         return result;
+    }
+
+    /**
+     * 标注重修：某条记录若在**更早学期**有同一课程代码的修读记录，则它是一次重修。
+     *
+     * <p>之所以只看「更早学期是否存在同一代码」就够了：学业记录里只包含**已提交**的成绩，
+     * 而初始化数据的 {@code verifyTranscriptIntegrity()} 已经保证「同一学生跨学期修读同一代码时
+     * 前一次必须是挂科」，选课规则也禁止已通过的课程再次修读。因此同一代码出现第二次，
+     * 一定是因为第一次没通过——也就是重修。正在修读（成绩未提交）不在学业记录里，不参与判断。
+     */
+    private void markRetakes(List<Map<String, Object>> rows) {
+        // 课程代码 → 该代码下出现过的学期（升序）
+        var termsByCode = new HashMap<String, TreeSet<String>>();
+        for (var row : rows) {
+            String code = blank(row.get("code"));
+            String term = blank(row.get("term"));
+            if (code == null || term == null) continue;
+            termsByCode.computeIfAbsent(code, k -> new TreeSet<>()).add(term);
+        }
+        for (var row : rows) {
+            String code = blank(row.get("code"));
+            String term = blank(row.get("term"));
+            var terms = code == null ? null : termsByCode.get(code);
+            boolean retake = terms != null && term != null && terms.lower(term) != null;
+            row.put("retake", retake);
+            row.put("retakeLabel", retake ? "重修" : null);
+        }
+    }
+
+    /** 空安全的字符串读取：空串与 null 一律返回 null，便于比较。 */
+    private static String blank(Object value) {
+        if (value == null) return null;
+        String text = value.toString().strip();
+        return text.isEmpty() ? null : text;
     }
 }
