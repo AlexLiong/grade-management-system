@@ -26,8 +26,16 @@ import {
   AlertTriangle,
   FileCheck,
   ClipboardList,
+  Building2,
+  ClipboardCheck,
+  CalendarClock,
+  ListChecks,
+  UserCheck,
+  UserMinus,
 } from "lucide-vue-next";
 import { api } from "./api";
+import OrganizationView from "./components/OrganizationView.vue";
+import SelectionView from "./components/SelectionView.vue";
 
 const user = ref(null),
   boot = ref(true),
@@ -50,12 +58,13 @@ const roster = ref([]),
   ledger = ref(null),
   integrity = ref(null),
   classification = ref(null);
+const orgOptions = ref({ colleges: [], majors: [], classes: [] });
+const teachers = ref([]);
 const modal = ref(""),
   weights = ref({}),
   analysis = ref(""),
   userForm = ref({}),
   courseForm = ref({}),
-  enrollStudent = ref(""),
   reason = ref(""),
   confirmation = ref(""),
   transitionAction = ref(""),
@@ -66,6 +75,95 @@ const modal = ref(""),
   oldPassword = ref(""),
   newPassword = ref(""),
   printing = ref(false);
+/* 侧栏宽度：由鼠标拖拽右侧手柄自由调节，宽度本身持久化到 localStorage。
+   为保证「拖窄时仍然好看」，宽度分成三档：
+     - >= 168px：完整宽度（图标 + 文字）
+     - 118–167px：紧凑档，导航仍显示文字但收紧内边距
+     - < 118px：仅图标档，只保留图标并用 title 提供悬浮提示
+   拖动过程中禁用文本选择，松手后写回 localStorage。 */
+const SIDEBAR_MIN = 68;
+const SIDEBAR_MAX = 420;
+const SIDEBAR_ICON_ONLY = 118;
+const SIDEBAR_COMFORTABLE = 168;
+const SIDEBAR_DEFAULT = 216;
+function clampSidebarWidth(value) {
+  return Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, Math.round(value)));
+}
+/** 已保存的宽度；null 表示用户从未拖过，此时沿用样式表里的默认值（含小屏断点）。 */
+const savedSidebarWidth = (() => {
+  try {
+    const raw = window.localStorage?.getItem("campus.sidebarWidth");
+    const parsed = raw === null || raw === undefined ? NaN : Number(raw);
+    return Number.isFinite(parsed) ? clampSidebarWidth(parsed) : null;
+  } catch (e) {
+    return null;
+  }
+})();
+const sidebarWidth = ref(savedSidebarWidth);
+const sidebarResizing = ref(false);
+const sidebarIconOnly = computed(
+  () => sidebarWidth.value !== null && sidebarWidth.value < SIDEBAR_ICON_ONLY,
+);
+const sidebarCompact = computed(
+  () =>
+    sidebarWidth.value !== null &&
+    sidebarWidth.value >= SIDEBAR_ICON_ONLY &&
+    sidebarWidth.value < SIDEBAR_COMFORTABLE,
+);
+/** 只有用户真正拖过才写内联宽度，避免覆盖样式表里的小屏断点。 */
+const sidebarStyle = computed(() =>
+  sidebarWidth.value === null ? {} : { "--sidebar-width": sidebarWidth.value + "px" },
+);
+function startSidebarResize(event) {
+  if (event.button !== undefined && event.button !== 0) return;
+  event.preventDefault();
+  const startX = event.clientX;
+  const startWidth =
+    sidebarWidth.value ??
+    document.querySelector("aside.sidebar")?.getBoundingClientRect().width ??
+    SIDEBAR_DEFAULT;
+  sidebarResizing.value = true;
+  document.body.classList.add("resizing-sidebar");
+  const onMove = (moveEvent) => {
+    sidebarWidth.value = clampSidebarWidth(startWidth + moveEvent.clientX - startX);
+  };
+  const onUp = () => {
+    window.removeEventListener("mousemove", onMove);
+    window.removeEventListener("mouseup", onUp);
+    sidebarResizing.value = false;
+    document.body.classList.remove("resizing-sidebar");
+    if (sidebarWidth.value !== null)
+      try {
+        window.localStorage?.setItem("campus.sidebarWidth", String(sidebarWidth.value));
+      } catch (e) {
+        /* 隐私模式下 localStorage 可能不可用，忽略即可 */
+      }
+  };
+  window.addEventListener("mousemove", onMove);
+  window.addEventListener("mouseup", onUp);
+}
+/** 双击手柄恢复默认宽度（并清掉持久化值，让默认值继续跟随小屏断点）。 */
+function resetSidebarWidth() {
+  sidebarWidth.value = null;
+  try {
+    window.localStorage?.removeItem("campus.sidebarWidth");
+  } catch (e) {
+    /* 忽略 */
+  }
+}
+/* 管理员「选课管理」页的标签页：courses / publish / records。 */
+const selectionTab = ref("courses");
+/* 「按课程选课」弹窗状态。 */
+const enrollCourse = ref(null);
+const enrollStudents = ref([]);
+const enrollStudentIds = ref([]);
+const enrollClassName = ref("");
+const enrollKeyword = ref("");
+const enrollRoster = ref([]);
+const enrollResult = ref(null);
+const enrollLoading = ref(false);
+const enrollWorking = ref(false);
+const enrollRemoved = ref(false);
 const components = [
   ["regular", "平时"],
   ["attendance", "考勤"],
@@ -83,11 +181,20 @@ const permissionNames = {
   GRADE_ADMIN: "成绩管理",
   USER_ADMIN: "人员与权限",
   AUDIT: "安全审计",
+  ORG_ADMIN: "组织管理",
+  SELECTION_ADMIN: "选课管理",
+  SELECTION_ENROLL: "网上选课",
 };
 const rolePermissions = {
   TEACHER: ["QUERY", "ENTRY", "MAINTAIN", "PREDICT"],
-  STUDENT: ["QUERY", "PREDICT"],
-  ADMIN: ["GRADE_ADMIN", "USER_ADMIN", "AUDIT"],
+  STUDENT: ["QUERY", "PREDICT", "SELECTION_ENROLL"],
+  ADMIN: [
+    "GRADE_ADMIN",
+    "USER_ADMIN",
+    "AUDIT",
+    "ORG_ADMIN",
+    "SELECTION_ADMIN",
+  ],
 };
 const perms = computed(() =>
   Array.isArray(user.value?.permissions)
@@ -135,6 +242,44 @@ const submitted = computed(
 const completed = computed(
   () => grades.value.filter((g) => total(g.scores) !== null).length,
 );
+/**
+ * 最新学期（课程列表里最靠后的 term）。
+ *
+ * <p>学业预警只对「正在进行中」的课程有意义——学生的期末成绩一旦录入就没有可预测对象，
+ * 因此课程选择器里把最新学期的课程排在最前，空结果提示也指向它。
+ */
+const latestTerm = computed(() => terms.value[0] || "");
+/**
+ * 学业记录统计口径（重修友好）：
+ * - 已获课程：按**课程代码去重**后已通过的课程数 —— 重修通过只算一门，不会因为修了两次算两门；
+ * - 已获学分：同样按代码去重，只取通过的那次，所以重修不会重复计学分；
+ * - 未通过课程：**到目前为止仍未通过**的课程代码数 —— 已经重修通过的课程不再算「未通过」。
+ */
+const passedCourseCount = computed(
+  () =>
+    new Set(transcript.value.filter((g) => !g.failed).map((g) => g.code)).size,
+);
+const earnedCredits = computed(() => {
+  const seen = new Set();
+  let sum = 0;
+  for (const g of transcript.value) {
+    if (g.failed || seen.has(g.code)) continue;
+    seen.add(g.code);
+    sum += Number(g.credits) || 0;
+  }
+  return sum;
+});
+const pendingCourseCount = computed(() => {
+  const passed = new Set(
+    transcript.value.filter((g) => !g.failed).map((g) => g.code),
+  );
+  const pending = new Set(
+    transcript.value
+      .filter((g) => g.failed && !passed.has(g.code))
+      .map((g) => g.code),
+  );
+  return pending.size;
+});
 const gradeMean = computed(() => {
   const values = grades.value
     .map((g) => total(g.scores))
@@ -143,6 +288,10 @@ const gradeMean = computed(() => {
     ? (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1)
     : "--";
 });
+/**
+ * 侧栏导航。管理员顺序固定为：课程成绩、统计分析、人员与权限、组织管理、选课管理、安全审计（最后一项）。
+ * 「安全审计」必须排在管理员导航的最后；学生与教师看不到该项，顺序不受影响。
+ */
 const nav = computed(() => [
   ...((isTeacher.value && can("QUERY")) || (isAdmin.value && can("GRADE_ADMIN"))
     ? [
@@ -156,18 +305,119 @@ const nav = computed(() => [
   ...(isStudent.value && can("PREDICT")
     ? [{ key: "prediction", name: "学业预警", icon: ChartColumn }]
     : []),
-  ...(isAdmin.value && can("GRADE_ADMIN")
-    ? [{ key: "courses", name: "课程与选课", icon: BookOpen }]
-    : []),
   ...(isAdmin.value && can("USER_ADMIN")
     ? [{ key: "users", name: "人员与权限", icon: Users }]
+    : []),
+  ...(isAdmin.value && can("ORG_ADMIN")
+    ? [{ key: "organization", name: "组织管理", icon: Building2 }]
+    : []),
+  /* 学生：网上选课（只有选课台）；管理员：选课管理（课程与选课 / 选课批次 / 选课记录）。 */
+  ...(isStudent.value && can("SELECTION_ENROLL")
+    ? [{ key: "selection", name: "网上选课", icon: ClipboardCheck }]
+    : []),
+  ...(isAdmin.value && can("SELECTION_ADMIN")
+    ? [{ key: "selection", name: "选课管理", icon: ClipboardCheck }]
     : []),
   ...(isAdmin.value && can("AUDIT")
     ? [{ key: "audit", name: "安全审计", icon: ShieldCheck }]
     : []),
 ]);
+const userMajorOptions = computed(() =>
+  orgOptions.value.majors.filter(
+    (m) =>
+      !userForm.value.college_id ||
+      m.collegeId === userForm.value.college_id ||
+      m.collegeName === userForm.value.college,
+  ),
+);
+const userClassOptions = computed(() =>
+  orgOptions.value.classes.filter(
+    (c) =>
+      !userForm.value.major_id ||
+      c.majorId === userForm.value.major_id ||
+      c.majorName === userForm.value.major,
+  ),
+);
+const teacherOptions = computed(() => {
+  const list = teachers.value.length
+    ? teachers.value
+    : users.value.filter((u) => u.role === "TEACHER");
+  return list.filter(
+    (t) => t.enabled === undefined || t.enabled === null || Number(t.enabled),
+  );
+});
 const pageName = computed(
   () => nav.value.find((n) => n.key === page.value)?.name || "账户设置",
+);
+/**
+ * 左下角身份行：角色 + 所在学院 + 专业 + 班级。
+ * `/me` 返回的 collegeName / majorName / className 对管理员均为 null，
+ * 这里统一做空值过滤，避免出现「管理员 · null」。
+ */
+const identityParts = computed(() => {
+  const current = user.value;
+  if (!current) return [];
+  const parts = [];
+  const push = (value) => {
+    const text =
+      value === null || value === undefined ? "" : String(value).trim();
+    if (text) parts.push(text);
+  };
+  push(roles[current.role]);
+  push(current.collegeName);
+  push(current.majorName);
+  push(current.className);
+  return parts;
+});
+const identityLine = computed(() => identityParts.value.join(" · "));
+/* 管理员「选课管理」页的 3 个标签页。 */
+const adminSelectionTabs = computed(() => [
+  { key: "courses", name: "课程与选课", icon: BookOpen },
+  { key: "publish", name: "选课批次", icon: CalendarClock },
+  { key: "records", name: "选课记录", icon: ListChecks },
+]);
+/** 课程授课教师：优先用 /courses 返回的 teacherName，退回本地教师表与编号。 */
+function teacherNameOf(course) {
+  if (!course) return "--";
+  if (course.teacherName) return course.teacherName;
+  const found = users.value.find((u) => u.id === course.teacher_id);
+  return (found && found.name) || course.teacher_id || "--";
+}
+/** 「按课程选课」弹窗：班级下拉选中的班级对应的在读学生。 */
+const enrollClassMembers = computed(() => {
+  const name = enrollClassName.value;
+  if (!name) return [];
+  return enrollStudents.value.filter(
+    (s) => s.className === name || s.classNameRaw === name,
+  );
+});
+/** 勾选学生 + 整班学生，并集去重后的待处理名单。 */
+const enrollSelectedIds = computed(() => {
+  const ids = new Set(enrollStudentIds.value);
+  for (const s of enrollClassMembers.value) ids.add(s.id);
+  return [...ids];
+});
+const enrollVisibleStudents = computed(() => {
+  const keyword = enrollKeyword.value.trim().toLowerCase();
+  if (!keyword) return enrollStudents.value;
+  return enrollStudents.value.filter((s) =>
+    [s.name, s.username, s.className, s.majorName, s.collegeName]
+      .map((v) => String(v || "").toLowerCase())
+      .some((v) => v.includes(keyword)),
+  );
+});
+/** 已在课程名单里的学生编号，用于在列表里标注「已选」。 */
+const enrolledIds = computed(
+  () => new Set(enrollRoster.value.map((s) => s.id)),
+);
+/**
+ * 当前课程里的重修学生编号。
+ *
+ * <p>重修与课程名无关，只能由「该生此前学期修过同一课程号且未通过」推出来，
+ * 后端在 `/roster` 的每条记录上给出 `retake`，这里建成集合供勾选列表标注。
+ */
+const retakeIds = computed(
+  () => new Set(enrollRoster.value.filter((s) => s.retake).map((s) => s.id)),
 );
 function total(scores = {}) {
   let sum = 0;
@@ -228,9 +478,56 @@ async function loadCourse() {
   statistics.value = result[2];
   analysis.value = result[2].analysis.content;
 }
+/** 组织选项接口可能返回 {colleges,majors,classes} 或分页对象，这里统一取值。 */
+function optionsList(result, key) {
+  if (Array.isArray(result)) return result;
+  if (result && Array.isArray(result[key])) return result[key];
+  if (result && Array.isArray(result.items)) return result.items;
+  return [];
+}
+async function loadOrganizations() {
+  try {
+    const result = await api("/organizations/options");
+    orgOptions.value = {
+      colleges: optionsList(result, "colleges"),
+      majors: optionsList(result, "majors"),
+      classes: optionsList(result, "classes"),
+    };
+  } catch (e) {
+    // 选项接口失败不应让整页报错，下拉框退化为空列表。
+    orgOptions.value = { colleges: [], majors: [], classes: [] };
+  }
+}
+async function loadTeachers() {
+  try {
+    teachers.value = optionsList(await api("/users/teachers"), "items");
+  } catch (e) {
+    teachers.value = [];
+  }
+}
+async function loadSelectionCourses() {
+  await loadCourses();
+  await loadTeachers();
+  if (can("USER_ADMIN") && !users.value.length)
+    users.value = (await api("/users?size=300")).items;
+}
+/** 管理员「选课管理」页切换标签页；后两个标签页由 SelectionView 自管数据。 */
+async function switchSelectionTab(key) {
+  if (key === selectionTab.value) return;
+  selectionTab.value = key;
+  if (key === "courses") await run(loadSelectionCourses);
+}
 async function loadPage() {
+  if (page.value === "organization") return;
+  if (page.value === "selection") {
+    // 学生选课台与管理员的后两个标签页都由 SelectionView 自己加载。
+    if (isAdmin.value && selectionTab.value === "courses")
+      await loadSelectionCourses();
+    return;
+  }
   if (page.value === "users") {
     users.value = (await api("/users?size=300")).items;
+    await loadOrganizations();
     return;
   }
   if (page.value === "audit") {
@@ -239,10 +536,6 @@ async function loadPage() {
   }
   if (page.value === "transcript") {
     transcript.value = await api("/transcript");
-    return;
-  }
-  if (page.value === "courses") {
-    if (can("USER_ADMIN")) users.value = (await api("/users?size=300")).items;
     return;
   }
   await loadCourse();
@@ -258,7 +551,10 @@ async function login() {
       username: username.value,
       password: password.value,
     });
-    user.value = result.user;
+    // /login 返回的 user 只含账号本身；左下角身份行需要 /me 才有的
+    // collegeName / majorName / className，所以登录后立刻补一次 /me。
+    const profile = await api("/me");
+    user.value = profile || result.user;
     password.value = "";
     await initialize();
   });
@@ -345,6 +641,31 @@ async function predict() {
     prediction.value = await api("/predict", { courseId: courseId.value });
   });
 }
+/** 组织下拉统一按名称操作；班级取选项里的原始 name（接口返回的 className 是“2023级xx班”展示名）。 */
+function classRawName(id, display) {
+  const option = id
+    ? orgOptions.value.classes.find((c) => c.id === id)
+    : null;
+  return option ? option.name : String(display || "").replace(/^\d+级/, "");
+}
+function selectUserCollege() {
+  const option = orgOptions.value.colleges.find(
+    (c) => c.name === userForm.value.college,
+  );
+  userForm.value.college_id = option ? option.id : "";
+  userForm.value.major = "";
+  userForm.value.major_id = "";
+  userForm.value.klass = "";
+  userForm.value.class_id = "";
+}
+function selectUserMajor() {
+  const option = orgOptions.value.majors.find(
+    (m) => m.name === userForm.value.major,
+  );
+  userForm.value.major_id = option ? option.id : "";
+  userForm.value.klass = "";
+  userForm.value.class_id = "";
+}
 function editUser(u) {
   userForm.value = u
     ? {
@@ -352,13 +673,21 @@ function editUser(u) {
         permissions: u.permissions.split(","),
         enabled: Number(u.enabled),
         password: "",
+        college: u.collegeName || "",
+        major: u.majorName || "",
+        klass: classRawName(u.class_id, u.className),
       }
     : {
         username: "",
         name: "",
         role: "STUDENT",
-        permissions: ["QUERY", "PREDICT"],
-        department: "信息工程学院",
+        permissions: ["QUERY", "PREDICT", "SELECTION_ENROLL"],
+        college: "",
+        major: "",
+        klass: "",
+        college_id: "",
+        major_id: "",
+        class_id: "",
         enabled: 1,
         password: "",
       };
@@ -366,7 +695,17 @@ function editUser(u) {
 }
 async function saveUser() {
   await run(async () => {
-    await api("/users/save", userForm.value);
+    const body = { ...userForm.value };
+    // 组织归属统一按名称提交；后端返回的 *Name 是展示名（班级为“2023级xx班”），不能回传。
+    delete body.klass;
+    delete body.className;
+    delete body.collegeName;
+    delete body.majorName;
+    body.college = body.college || "";
+    body.major = body.major || "";
+    if (body.role === "STUDENT") body.class = userForm.value.klass || "";
+    else delete body.class;
+    await api("/users/save", body);
     modal.value = "";
     users.value = (await api("/users?size=300")).items;
   }, "人员信息已保存");
@@ -384,26 +723,77 @@ async function saveCourse() {
     await loadCourses();
   }, "课程已保存");
 }
-async function enrollment(remove = false, studentId = enrollStudent.value) {
-  await run(
-    async () => {
-      await api("/enrollments", {
-        courseId: courseId.value,
-        studentId,
-        remove,
-      });
-      await loadCourses();
-      roster.value = await api("/roster?courseId=" + courseId.value);
-    },
-    remove ? "已退选" : "已选课",
-  );
-}
+/**
+ * 打开「按课程选课」弹窗：显示课程信息与当前名单人数，
+ * 学生名单来自组织域接口 GET /organizations/students?size=300（不需要 USER_ADMIN 的 /users）。
+ */
 async function openEnrollment(c) {
   courseId.value = c.id;
-  await run(async () => {
-    roster.value = await api("/roster?courseId=" + c.id);
-    modal.value = "enroll";
-  });
+  enrollCourse.value = c;
+  enrollStudentIds.value = [];
+  enrollClassName.value = "";
+  enrollKeyword.value = "";
+  enrollResult.value = null;
+  enrollRemoved.value = false;
+  enrollLoading.value = true;
+  modal.value = "enroll";
+  try {
+    const roster = await api("/roster?courseId=" + c.id);
+    enrollRoster.value = Array.isArray(roster) ? roster : optionsList(roster, "items");
+  } catch (e) {
+    enrollRoster.value = [];
+    error.value = e.message;
+  }
+  try {
+    enrollStudents.value = optionsList(
+      await api("/organizations/students?size=300"),
+      "items",
+    );
+  } catch (e) {
+    enrollStudents.value = [];
+    error.value = e.message + "（学生列表不可用，仍可按班级整班处理）";
+  }
+  await loadOrganizations();
+  enrollLoading.value = false;
+}
+/** 提交按课程选课 / 退课：POST /enrollments/batch。 */
+async function submitEnrollment(remove) {
+  if (enrollWorking.value || !enrollCourse.value) return;
+  const ids = enrollSelectedIds.value;
+  const className = enrollClassName.value;
+  if (!ids.length && !className) {
+    error.value = "请选择学生或班级";
+    return;
+  }
+  enrollWorking.value = true;
+  enrollRemoved.value = !!remove;
+  error.value = "";
+  notice.value = "";
+  try {
+    const body = { courseId: enrollCourse.value.id };
+    if (ids.length) body.studentIds = ids;
+    if (className) body.className = className;
+    if (remove) body.remove = true;
+    const result = await api("/enrollments/batch", body);
+    enrollResult.value = result || {};
+    enrollRoster.value = await api(
+      "/roster?courseId=" + enrollCourse.value.id,
+    );
+    await loadCourses();
+    notice.value =
+      (remove ? "退课完成" : "选课完成") +
+      "：新增 " +
+      (enrollResult.value.added || 0) +
+      " · 跳过 " +
+      (enrollResult.value.skipped || 0) +
+      " · 移除 " +
+      (enrollResult.value.removed || 0);
+  } catch (e) {
+    enrollResult.value = null;
+    error.value = e.message;
+  } finally {
+    enrollWorking.value = false;
+  }
 }
 async function recognize(event) {
   const file = event.target.files[0];
@@ -542,9 +932,14 @@ onMounted(async () => {
         <ShieldCheck :size="16" />安全连接 · 身份验证
       </div>
     </form>
-    <div class="login-caption">信息工程学院<span>ACADEMIC AFFAIRS</span></div>
+    <div class="login-caption">教务工作台<span>ACADEMIC AFFAIRS</span></div>
   </main>
-  <div v-else class="app-shell">
+  <div
+    v-else
+    class="app-shell"
+    :class="{ 'sidebar-compact': sidebarCompact, 'sidebar-icon-only': sidebarIconOnly }"
+    :style="sidebarStyle"
+  >
     <aside class="sidebar no-print">
       <div class="brand">
         <GraduationCap :size="28" /><span>知序<small>高校成绩管理</small></span>
@@ -555,26 +950,53 @@ onMounted(async () => {
           v-for="item in nav"
           :key="item.key"
           :class="{ active: page === item.key }"
+          :title="item.name"
+          :aria-label="item.name"
+          :aria-current="page === item.key ? 'page' : undefined"
           @click="navigate(item.key)"
         >
-          <component :is="item.icon" :size="18" />{{ item.name }}
+          <component :is="item.icon" :size="18" /><span class="nav-name">{{
+            item.name
+          }}</span>
         </button>
       </nav>
       <div class="sidebar-bottom">
         <div class="security-stamp">
-          <ShieldCheck :size="17" />HTTPS 安全连接
+          <ShieldCheck :size="17" /><span>HTTPS 安全连接</span>
         </div>
-        <button class="identity" @click="navigate('account')">
+        <button
+          class="identity"
+          :title="identityLine"
+          :aria-label="identityLine"
+          @click="navigate('account')"
+        >
           <span class="avatar">{{ user.name.slice(0, 1) }}</span
-          ><span
-            >{{ user.name }}<small>{{ roles[user.role] }}</small></span
-          ><Settings2 :size="16" />
+          ><span class="identity-text"
+            ><strong class="identity-name">{{ user.name }}</strong
+            ><small class="identity-meta">{{ identityLine }}</small></span
+          ><Settings2 class="identity-cog" :size="16" />
         </button>
+      </div>
+      <!-- 拖拽调节侧栏宽度：拖动左右移动，双击恢复默认宽度 -->
+      <div
+        class="sidebar-resizer no-print"
+        role="separator"
+        aria-orientation="vertical"
+        :aria-label="'拖动调节导航栏宽度（当前 ' + (sidebarWidth ?? SIDEBAR_DEFAULT) + ' 像素，双击恢复默认）'"
+        :aria-valuenow="sidebarWidth ?? SIDEBAR_DEFAULT"
+        :aria-valuemin="SIDEBAR_MIN"
+        :aria-valuemax="SIDEBAR_MAX"
+        :class="{ active: sidebarResizing }"
+        title="拖动调节导航栏宽度，双击恢复默认"
+        @mousedown="startSidebarResize"
+        @dblclick="resetSidebarWidth"
+      >
+        <span class="sidebar-resizer-grip" aria-hidden="true"></span>
       </div>
     </aside>
     <div class="main-shell">
       <header class="topbar no-print">
-        <span>信息工程学院 <span class="slash">/</span> {{ pageName }}</span>
+        <span>{{ pageName }}</span>
         <div>
           <span class="role-label">{{ roles[user.role] }}</span
           ><button
@@ -790,6 +1212,12 @@ onMounted(async () => {
                     <tr v-for="row in pagedRows" :key="row.id">
                       <td class="student-cell">
                         <strong>{{ row.name }}</strong
+                        ><!-- 重修只看学生在该课程号上的历史：课程名本身与重修无关 -->
+                        <span
+                          v-if="row.retake"
+                          class="badge amber"
+                          title="该生此前学期此课程未通过，本学期重修同一课程号"
+                          >重修</span
                         ><small>{{ row.username }}</small>
                       </td>
                       <td v-for="[key, name] in activeComponents" :key="key">
@@ -1012,6 +1440,15 @@ onMounted(async () => {
                   <ChartColumn :size="16" />生成预警
                 </button>
               </div>
+              <!-- 预测对象是「已录入平时/实验、期末未考」的学生，因此只对进行中的课程有意义 -->
+              <p v-if="isStudent" class="muted" style="margin: 0 0 14px">
+                学业预警针对<strong>正在进行中</strong>的课程：已录入平时与实验、期末尚未考试时，
+                可以预估期末与总评成绩。请在上方课程选择里选一门当前学期（{{
+                  latestTerm || "最新学期"
+                }}）的课程。</p>
+              <p v-else class="muted" style="margin: 0 0 14px">
+                学业预警针对<strong>正在进行中</strong>的课程：预估尚未录入期末成绩的学生可能得到的总评，
+                并对临界分数给出风险提示。</p>
               <template v-if="prediction"
                 ><div class="model-meta">
                   <span
@@ -1063,7 +1500,18 @@ onMounted(async () => {
                       </tr>
                       <tr v-if="!prediction.results.length">
                         <td colspan="5" class="empty">
-                          暂无可预测的未完成成绩
+                          <!-- 预测对象是「已有平时/实验、期末还没考」的学生；
+                               课程已出分时本人这条成绩是完整的，因此没有可预测对象。 -->
+                          <template v-if="isStudent">
+                            《{{ selected?.name || "该课程" }}》本学期的期末成绩已经录入，
+                            预测对象为空。学业预警针对<strong>正在进行中</strong>的课程
+                            （已录入平时与实验、期末未考）；请在下方课程选择里选一门当前学期
+                            （{{ latestTerm || "最新学期" }}）的课程再试。
+                          </template>
+                          <template v-else>
+                            该课程暂无「已录入平时与实验、期末未录入」的学生，
+                            因此没有需要预测的对象。学业预警针对<strong>正在进行中</strong>的课程。
+                          </template>
                         </td>
                       </tr>
                     </tbody>
@@ -1088,18 +1536,17 @@ onMounted(async () => {
               ><strong>{{ transcript.length }}<small>门</small></strong>
             </div>
             <div>
+              <span>已获课程</span
+              ><strong>{{ passedCourseCount }}<small>门</small></strong>
+            </div>
+            <div>
               <span>已获学分</span
-              ><strong>{{
-                transcript
-                  .filter((g) => !g.failed)
-                  .reduce((s, g) => s + Number(g.credits), 0)
-              }}</strong>
+              ><strong>{{ earnedCredits }}</strong>
             </div>
             <div>
               <span>未通过课程</span
-              ><strong :class="{ failed: transcript.some((g) => g.failed) }"
-                >{{ transcript.filter((g) => g.failed).length
-                }}<small>门</small></strong
+              ><strong :class="{ failed: pendingCourseCount > 0 }"
+                >{{ pendingCourseCount }}<small>门</small></strong
               >
             </div>
           </div>
@@ -1130,7 +1577,13 @@ onMounted(async () => {
                   :key="g.id"
                 >
                   <td>
-                    <strong>{{ g.name }}</strong
+                    <strong>{{ g.name }}</strong>
+                    <!-- 重修与课程名无关：同一课程号在后续学年重新修读，这里只标状态 -->
+                    <span
+                      v-if="g.retake"
+                      class="badge amber"
+                      title="此前学期该课程未通过，本次为重修"
+                      >重修</span
                     ><small class="block muted">{{ g.code }}</small>
                   </td>
                   <td>{{ g.term }}</td>
@@ -1211,56 +1664,104 @@ onMounted(async () => {
               </tbody>
             </table></div
         ></template>
-        <template v-if="page === 'courses'"
-          ><div class="section-toolbar">
-            <span class="muted">{{ courses.length }} 门课程</span
-            ><button class="primary" @click="editCourse()">
-              <Plus :size="16" />新建课程
-            </button>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>课程</th>
-                  <th>学期</th>
-                  <th>学分</th>
-                  <th>授课教师</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="c in courses" :key="c.id">
-                  <td>
-                    <strong>{{ c.name }}</strong
-                    ><small class="block muted">{{ c.code }}</small>
-                  </td>
-                  <td>{{ c.term }}</td>
-                  <td>{{ c.credits }}</td>
-                  <td>
-                    {{
-                      users.find((u) => u.id === c.teacher_id)?.name ||
-                      c.teacher_id
-                    }}
-                  </td>
-                  <td>
-                    <div class="toolbar-actions">
-                      <button class="secondary" @click="openEnrollment(c)">
-                        <Users :size="15" />选课</button
-                      ><button
-                        class="icon-button"
-                        :title="'编辑 ' + c.name"
-                        :aria-label="'编辑 ' + c.name"
-                        @click="editCourse(c)"
-                      >
-                        <Settings2 :size="17" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              </tbody>
-            </table></div
-        ></template>
+        <template v-if="page === 'selection'">
+          <!-- 管理员：网上选课 + 课程与选课合并为一个「选课管理」页，内含 3 个标签页。 -->
+          <template v-if="isAdmin">
+            <div class="sel-tabs no-print">
+              <button
+                v-for="t in adminSelectionTabs"
+                :key="t.key"
+                class="sel-tab"
+                :class="{ active: selectionTab === t.key }"
+                @click="switchSelectionTab(t.key)"
+              >
+                <component :is="t.icon" :size="16" />{{ t.name }}
+              </button>
+            </div>
+            <template v-if="selectionTab === 'courses'">
+              <div class="section-toolbar">
+                <span class="muted">{{ courses.length }} 门课程</span>
+                <div class="toolbar-actions">
+                  <button
+                    class="icon-button"
+                    title="刷新课程"
+                    aria-label="刷新课程"
+                    :disabled="busy"
+                    @click="run(loadSelectionCourses)"
+                  >
+                    <RefreshCw :size="17" :class="{ spinning: busy }" />
+                  </button>
+                  <button class="primary" @click="editCourse()">
+                    <Plus :size="16" />新建课程
+                  </button>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>课程</th>
+                      <th>学期</th>
+                      <th>学分</th>
+                      <th>授课教师</th>
+                      <th>开设学院</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="c in courses" :key="c.id">
+                      <td>
+                        <strong>{{ c.name }}</strong
+                        ><small class="block muted">{{ c.code }}</small>
+                      </td>
+                      <td>{{ c.term }}</td>
+                      <td>{{ c.credits }}</td>
+                      <td>{{ teacherNameOf(c) }}</td>
+                      <td>{{ c.collegeName || "--" }}</td>
+                      <td>
+                        <div class="toolbar-actions">
+                          <button
+                            class="secondary"
+                            :title="'为 ' + c.name + ' 选课'"
+                            @click="openEnrollment(c)"
+                          >
+                            <Users :size="15" />选课</button
+                          ><button
+                            class="icon-button"
+                            :title="'编辑 ' + c.name"
+                            :aria-label="'编辑 ' + c.name"
+                            @click="editCourse(c)"
+                          >
+                            <Settings2 :size="17" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                    <tr v-if="!courses.length">
+                      <td colspan="6" class="empty">暂无课程</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </template>
+            <SelectionView
+              v-else
+              :key="selectionTab"
+              :user="user"
+              :view="selectionTab"
+              embedded
+              @notice="notice = $event"
+              @error="error = $event"
+            />
+          </template>
+          <!-- 学生：只显示选课台，保持原行为不变。 -->
+          <SelectionView
+            v-else
+            :user="user"
+            @notice="notice = $event"
+            @error="error = $event"
+          />
+        </template>
         <template v-if="page === 'audit'"
           ><div class="section-toolbar">
             <span class="badge green" v-if="ledger?.verified"
@@ -1423,8 +1924,14 @@ onMounted(async () => {
             </button>
           </form></template
         >
+        <OrganizationView
+          v-if="page === 'organization' && isAdmin"
+          :user="user"
+          @notice="notice = $event"
+          @error="error = $event"
+        />
         <footer class="workspace-footer">
-          <span>知序 · 信息工程学院</span
+          <span>知序 · 高校成绩管理</span
           ><span>学业记录 / {{ new Date().getFullYear() }}</span>
         </footer>
       </main>
@@ -1432,10 +1939,11 @@ onMounted(async () => {
     <div
       v-if="modal"
       class="modal-backdrop no-print"
-      @click.self="!busy && (modal = '')"
+      @click.self="!busy && !enrollWorking && (modal = '')"
     >
       <section
         class="modal"
+        :class="{ wide: modal === 'enroll' }"
         role="dialog"
         aria-modal="true"
         :aria-label="
@@ -1444,7 +1952,7 @@ onMounted(async () => {
             transition: '确认成绩操作',
             user: '人员信息',
             course: '课程信息',
-            enroll: '选课名单',
+            enroll: '按课程选课',
             ocr: '识别成绩单',
             review: '审计复核',
           }[modal]
@@ -1458,7 +1966,7 @@ onMounted(async () => {
                 transition: "确认成绩操作",
                 user: "人员信息",
                 course: "课程信息",
-                enroll: "选课名单",
+                enroll: "按课程选课",
                 ocr: "识别成绩单",
                 review: "审计复核",
               }[modal]
@@ -1467,7 +1975,7 @@ onMounted(async () => {
           <button
             class="icon-button"
             aria-label="关闭对话框"
-            :disabled="busy"
+            :disabled="busy || enrollWorking"
             @click="modal = ''"
           >
             <X :size="20" />
@@ -1555,12 +2063,41 @@ onMounted(async () => {
                   {{ name }}
                 </option>
               </select></label
-            ><label
-              >组织<input
-                v-model="userForm.department"
+            ><label v-if="userForm.role !== 'ADMIN'"
+              >学院<select
+                v-model="userForm.college"
                 required
-                maxlength="100"
-            /></label>
+                @change="selectUserCollege"
+              >
+                <option value="">选择学院</option>
+                <option v-for="c in orgOptions.colleges" :key="c.id" :value="c.name">
+                  {{ c.name }}
+                </option>
+              </select></label
+            ><label v-if="userForm.role !== 'ADMIN'"
+              >专业<select
+                v-model="userForm.major"
+                required
+                @change="selectUserMajor"
+              >
+                <option value="">选择专业</option>
+                <option v-for="m in userMajorOptions" :key="m.id" :value="m.name">
+                  {{ m.name }}
+                </option>
+              </select></label
+            ><label v-if="userForm.role === 'STUDENT'"
+              >班级<select v-model="userForm.klass" required>
+                <option value="">选择班级</option>
+                <option v-for="c in userClassOptions" :key="c.id" :value="c.name">
+                  {{ c.name }}
+                </option>
+              </select></label
+            ><p
+              v-if="userForm.role !== 'ADMIN' && !orgOptions.colleges.length"
+              class="muted"
+            >
+              组织选项不可用，请先在「组织管理」维护学院 / 专业 / 班级。
+            </p>
           </div>
           <label
             >{{ userForm.id ? "重置密码（留空不更改）" : "初始密码"
@@ -1622,19 +2159,17 @@ onMounted(async () => {
                 required /></label
             ><label
               >授课教师<select
-                v-if="users.length"
+                v-if="teacherOptions.length"
                 v-model="courseForm.teacherId"
                 required
               >
                 <option value="" disabled>选择教师</option>
                 <option
-                  v-for="u in users.filter(
-                    (u) => u.role === 'TEACHER' && Number(u.enabled),
-                  )"
-                  :key="u.id"
-                  :value="u.id"
+                  v-for="t in teacherOptions"
+                  :key="t.id"
+                  :value="t.id"
                 >
-                  {{ u.name }}
+                  {{ t.name }}{{ t.collegeName ? " · " + t.collegeName : "" }}
                 </option></select
               ><input
                 v-else
@@ -1647,49 +2182,147 @@ onMounted(async () => {
             <button class="primary" :disabled="busy">保存课程</button>
           </div>
         </form>
-        <div v-if="modal === 'enroll'">
-          <div class="inline-form">
-            <select
-              v-if="users.length"
-              v-model="enrollStudent"
-              aria-label="选课学生"
-            >
-              <option value="">选择学生</option>
-              <option
-                v-for="u in users.filter(
-                  (u) =>
-                    u.role === 'STUDENT' &&
-                    Number(u.enabled) &&
-                    !roster.some((s) => s.id === u.id),
-                )"
-                :key="u.id"
-                :value="u.id"
-              >
-                {{ u.name }} · {{ u.username }}
-              </option></select
-            ><input
-              v-else
-              v-model="enrollStudent"
-              aria-label="学生编号"
-            /><button
-              class="primary"
-              :disabled="busy || !enrollStudent"
-              @click="enrollment()"
-            >
-              <Plus :size="16" />选课
-            </button>
+        <!-- 按课程选课：可选一个/多个学生，或某个班级的全部学生，两种方式并集去重。 -->
+        <div v-if="modal === 'enroll'" class="enroll-body">
+          <div v-if="enrollCourse" class="enroll-course">
+            <div>
+              <span class="course-code">{{ enrollCourse.code }}</span>
+              <strong>{{ enrollCourse.name }}</strong>
+            </div>
+            <p class="muted">
+              {{ enrollCourse.term }} 学期 <span class="dot">·</span>
+              {{ enrollCourse.credits }} 学分 <span class="dot">·</span> 授课教师
+              {{ teacherNameOf(enrollCourse) }} <span class="dot">·</span> 开设学院
+              {{ enrollCourse.collegeName || "--" }}
+            </p>
+            <p class="muted">
+              当前名单 <strong>{{ enrollRoster.length }}</strong> 人
+              <span v-if="enrollLoading"> · 加载中…</span>
+            </p>
           </div>
-          <div v-for="s in roster" :key="s.id" class="roster-item">
-            <span
-              >{{ s.name }} <small class="muted">{{ s.username }}</small></span
-            ><button
-              class="icon-button"
-              :title="'退选 ' + s.username"
-              :aria-label="'退选 ' + s.username"
-              :disabled="busy"
-              @click="enrollment(true, s.id)"
+          <label>
+            班级（整班处理）
+            <select v-model="enrollClassName" :disabled="enrollWorking">
+              <option value="">不按班级整班处理</option>
+              <option v-for="c in orgOptions.classes" :key="c.id" :value="c.name">
+                {{ c.name }}{{ c.majorName ? " · " + c.majorName : "" }}
+              </option>
+            </select>
+          </label>
+          <p v-if="enrollClassName" class="muted enroll-hint">
+            班级「{{ enrollClassName }}」共 {{ enrollClassMembers.length }} 名在读学生
+          </p>
+          <div class="enroll-search">
+            <span class="search">
+              <Search :size="16" />
+              <input
+                v-model="enrollKeyword"
+                placeholder="按姓名 / 学号 / 班级 / 专业筛选"
+                aria-label="筛选学生"
+                :disabled="enrollWorking"
+              />
+            </span>
+            <span class="muted">
+              已勾选 {{ enrollStudentIds.length }} 人<span
+                v-if="enrollClassName"
+              >
+                · 整班 {{ enrollClassMembers.length }} 人</span
+              >
+            </span>
+          </div>
+          <div v-if="enrollLoading" class="muted">学生名单加载中…</div>
+          <div v-else class="org-student-list enroll-student-list">
+            <label v-for="s in enrollVisibleStudents" :key="s.id" class="org-student">
+              <input
+                v-model="enrollStudentIds"
+                type="checkbox"
+                :value="s.id"
+                :disabled="enrollWorking"
+              />
+              <span>{{ s.name }}</span>
+              <small class="muted">{{ s.username }}</small>
+              <small class="muted enroll-student-class">{{
+                s.className || "未分班"
+              }}</small>
+              <span v-if="retakeIds.has(s.id)" class="badge amber" title="该生此前学期此课程未通过，本学期重修同一课程号">重修</span>
+              <span v-if="enrolledIds.has(s.id)" class="badge green">已选</span>
+            </label>
+            <p v-if="!enrollVisibleStudents.length" class="muted">
+              没有符合条件的学生
+            </p>
+          </div>
+          <p class="muted enroll-hint">
+            将处理 <strong>{{ enrollSelectedIds.length }}</strong> 名学生（勾选与整班并集去重）
+          </p>
+
+          <div v-if="enrollResult" class="sel-result">
+            <div class="sel-result-head">
+              <CheckCircle2 :size="18" />
+              <strong>{{ enrollRemoved ? "退课结果" : "选课结果" }}</strong>
+            </div>
+            <p class="weight-summary">
+              <span>新增 {{ enrollResult.added || 0 }}</span>
+              <span>跳过 {{ enrollResult.skipped || 0 }}</span>
+              <span>移除 {{ enrollResult.removed || 0 }}</span>
+              <span
+                v-if="
+                  enrollResult.classStudents !== undefined &&
+                  enrollResult.classStudents !== null
+                "
+                >班级 {{ enrollResult.classStudents }} 人</span
+              >
+              <span class="failed"
+                >失败 {{ (enrollResult.failed || []).length }}</span
+              >
+            </p>
+            <div v-if="(enrollResult.failed || []).length" class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>学号</th>
+                    <th>姓名</th>
+                    <th>失败原因</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(f, index) in enrollResult.failed" :key="index">
+                    <td>{{ f.studentId }}</td>
+                    <td>{{ f.name || "--" }}</td>
+                    <td class="failed">{{ f.reason }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="modal-actions">
+            <button
+              type="button"
+              class="secondary"
+              :disabled="enrollWorking"
+              @click="modal = ''"
             >
-              <X :size="16" />
+              关闭
+            </button>
+            <button
+              type="button"
+              class="danger"
+              :disabled="enrollWorking || !enrollSelectedIds.length"
+              @click="submitEnrollment(true)"
+            >
+              <UserMinus :size="16" />{{
+                enrollWorking && enrollRemoved ? "退课中…" : "退课"
+              }}
+            </button>
+            <button
+              type="button"
+              class="primary"
+              :disabled="enrollWorking || !enrollSelectedIds.length"
+              @click="submitEnrollment(false)"
+            >
+              <UserCheck :size="16" />{{
+                enrollWorking && !enrollRemoved ? "选课中…" : "选课"
+              }}
             </button>
           </div>
         </div>

@@ -254,8 +254,13 @@ form label {
   display: block;
   margin-top: 8px;
 }
+/* 侧栏宽度由 CSS 变量驱动：默认 216px，用户在界面上拖动右侧手柄后由内联样式覆盖。
+   调窄时用 .sidebar-compact / .sidebar-icon-only 两级收紧内边距、必要时隐藏文字。 */
+.app-shell {
+  --sidebar-width: 216px;
+}
 .sidebar {
-  width: 216px;
+  width: var(--sidebar-width);
   position: fixed;
   inset: 0 auto 0 0;
   border-right: 1px solid var(--line);
@@ -264,6 +269,47 @@ form label {
   display: flex;
   flex-direction: column;
   z-index: 20;
+}
+/* 拖动过程中不要有过渡，否则会跟手不及时产生拖影 */
+body.resizing-sidebar .sidebar,
+body.resizing-sidebar .main-shell {
+  transition: none;
+}
+body.resizing-sidebar {
+  cursor: col-resize;
+  user-select: none;
+}
+/* 拖拽手柄：贴在侧栏右边缘 */
+.sidebar-resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 21;
+  touch-action: none;
+  background: transparent;
+}
+.sidebar-resizer-grip {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 3px;
+  height: 46px;
+  border-radius: 2px;
+  background: var(--line);
+  transition: background 0.15s ease, height 0.15s ease;
+}
+.sidebar-resizer:hover .sidebar-resizer-grip,
+.sidebar-resizer.active .sidebar-resizer-grip {
+  background: var(--green);
+  height: 76px;
+}
+.sidebar-resizer:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 1px;
 }
 .brand {
   display: flex;
@@ -327,6 +373,7 @@ form label {
   text-align: left;
   background: white;
   justify-content: flex-start;
+  align-items: flex-start;
   gap: 10px;
   color: #3f5145;
 }
@@ -336,6 +383,29 @@ form label {
 .identity small {
   display: block;
   color: #91a096;
+}
+/* 身份文字：角色 + 学院 + 专业 + 班级，允许换行但不撑破侧栏。 */
+.identity-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.identity-name {
+  font-weight: 550;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.identity .identity-meta {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+  font-size: 10px;
 }
 .avatar {
   background: #e9efeb;
@@ -348,7 +418,7 @@ form label {
   font-size: 12px;
 }
 .main-shell {
-  margin-left: 216px;
+  margin-left: var(--sidebar-width);
   min-width: 0;
 }
 .topbar {
@@ -904,12 +974,12 @@ progress {
   }
 }
 @media (max-width: 1150px) {
-  .sidebar {
-    width: 180px;
-    padding-inline: 10px;
+  /* 中等屏幕默认窄一点；用户拖过之后以内联的 --sidebar-width 为准 */
+  .app-shell {
+    --sidebar-width: 180px;
   }
-  .main-shell {
-    margin-left: 180px;
+  .sidebar {
+    padding-inline: 10px;
   }
   .workspace {
     padding: 25px 22px;
@@ -941,6 +1011,10 @@ progress {
     padding: 15px 16px 0;
     border-right: 0;
     border-bottom: 1px solid var(--line);
+  }
+  /* 小屏侧栏是横向导航条，拖拽手柄无意义，隐藏 */
+  .sidebar-resizer {
+    display: none;
   }
   .brand {
     padding: 0;
@@ -1190,3 +1264,325 @@ progress {
     display: none !important;
   }
 }
+
+/* ------------------------------------------------------------ 组织管理视图 */
+.org-view,
+.sel-view {
+  display: block;
+}
+.org-tabs,
+.sel-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 14px;
+  margin-bottom: 18px;
+}
+.org-tab,
+.sel-tab {
+  background: white;
+  border: 1px solid #d7e0db;
+  color: #4d6157;
+  padding: 7px 14px;
+}
+.org-tab:hover,
+.sel-tab:hover {
+  background: #eef3f0;
+}
+.org-tab.active,
+.sel-tab.active {
+  background: var(--green);
+  border-color: var(--green);
+  color: white;
+}
+.org-tabs > .icon-button,
+.sel-tabs > .icon-button {
+  margin-left: auto;
+}
+.org-filters,
+.sel-filters {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.org-filters label,
+.sel-filters label {
+  margin-bottom: 0;
+}
+.org-filters select,
+.sel-filters select {
+  min-width: 168px;
+}
+.org-count {
+  font-size: 11px;
+  padding-bottom: 10px;
+}
+.org-actions {
+  margin-left: auto;
+}
+.org-loading,
+.sel-loading {
+  padding: 14px 0;
+  font-size: 12px;
+}
+.org-impact-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 16px;
+  margin: 12px 0;
+  font-size: 12px;
+}
+.org-impact-grid span {
+  background: #f2f6f3;
+  border-radius: 4px;
+  padding: 8px 10px;
+}
+.org-impact-grid label {
+  margin-bottom: 0;
+}
+.org-impact {
+  margin-bottom: 6px;
+}
+.org-modal-table {
+  max-height: 50svh;
+  overflow: auto;
+}
+.org-student-list {
+  max-height: 280px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  margin: 12px 0;
+  background: #fcfdfc;
+}
+.org-student {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 0;
+  padding: 8px 12px;
+  border-bottom: 1px solid #eef2f0;
+  font-size: 12px;
+  font-weight: 400;
+}
+.org-student small:last-child {
+  margin-left: auto;
+}
+.org-chosen {
+  margin-right: auto;
+  font-size: 11px;
+}
+
+/* -------------------------------------------------------------- 选课视图 */
+.sel-card {
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 18px 20px 20px;
+  margin-bottom: 20px;
+}
+.sel-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.sel-card-head h3 {
+  font-size: 16px;
+}
+.sel-card-tags {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.sel-section-title {
+  margin: 26px 0 14px;
+  font-size: 15px;
+}
+.sel-result {
+  background: white;
+  border: 1px solid var(--line);
+  border-left: 3px solid #71a98d;
+  border-radius: 6px;
+  padding: 16px 18px;
+  margin-top: 20px;
+}
+.sel-result-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--green);
+  margin-bottom: 8px;
+}
+.sel-switches {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.sel-scope {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0 12px;
+}
+.sel-scope select {
+  width: 100%;
+}
+.sel-checklist {
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin-top: 10px;
+  background: #fcfdfc;
+}
+.sel-check-item {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 400;
+}
+.sel-check-item small {
+  margin-left: auto;
+  font-size: 10px;
+  text-align: right;
+}
+.sel-filters .search input {
+  width: 200px;
+}
+@media (max-width: 900px) {
+  .sel-scope {
+    grid-template-columns: 1fr;
+  }
+  .org-impact-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --------------------------------------- 侧栏宽度自适应（拖动调节的两档收紧） */
+/* 只在屏幕宽度足够时生效：小屏下侧栏变成横向导航条，拖动结果不参与布局，
+   因此既不会破坏小屏样式，也不会产生横向滚动条。 */
+@media screen and (min-width: 761px) {
+  /* 紧凑档：导航仍显示文字，收紧内边距与字号，避免长班级名把侧栏撑开 */
+  .app-shell.sidebar-compact .sidebar {
+    padding: 22px 10px;
+  }
+  .app-shell.sidebar-compact .brand {
+    padding: 0 8px;
+  }
+  .app-shell.sidebar-compact .brand span {
+    font-size: 20px;
+  }
+  .app-shell.sidebar-compact .workspace-label {
+    margin: 34px 8px 10px;
+  }
+  .app-shell.sidebar-compact nav button {
+    padding: 10px 9px;
+    font-size: 12px;
+    gap: 8px;
+  }
+  .app-shell.sidebar-compact .identity {
+    padding: 16px 9px 0;
+  }
+  .app-shell.sidebar-compact .identity-meta {
+    font-size: 9px;
+  }
+
+  /* 仅图标档：拖到很窄时只留图标，文字隐藏（按钮仍有 title/aria-label） */
+  .app-shell.sidebar-icon-only .sidebar {
+    padding: 22px 8px;
+  }
+  .app-shell.sidebar-icon-only .brand {
+    padding: 0;
+    justify-content: center;
+  }
+  .app-shell.sidebar-icon-only .brand span,
+  .app-shell.sidebar-icon-only .workspace-label,
+  .app-shell.sidebar-icon-only .nav-name,
+  .app-shell.sidebar-icon-only .security-stamp span,
+  .app-shell.sidebar-icon-only .identity-text,
+  .app-shell.sidebar-icon-only .identity-cog {
+    display: none;
+  }
+  .app-shell.sidebar-icon-only nav button {
+    justify-content: center;
+    padding: 11px 0;
+    gap: 0;
+  }
+  .app-shell.sidebar-icon-only .security-stamp {
+    justify-content: center;
+    margin: 22px 0;
+  }
+  .app-shell.sidebar-icon-only .identity {
+    justify-content: center;
+    padding: 16px 0 0;
+  }
+}
+
+/* --------------------------------------------------------- 按课程选课弹窗 */
+.modal.wide {
+  width: 700px;
+}
+.enroll-course {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin-bottom: 18px;
+  background: #fbfdfc;
+}
+.enroll-course > div {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.enroll-course strong {
+  font-size: 15px;
+}
+.enroll-course p {
+  font-size: 11px;
+  margin-top: 6px;
+}
+.enroll-hint {
+  font-size: 11px;
+  margin: 8px 0 14px;
+}
+.enroll-search {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.enroll-search .search input {
+  width: 240px;
+}
+.enroll-student-list {
+  max-height: 240px;
+  margin-top: 0;
+}
+.enroll-student-list .org-student {
+  flex-wrap: wrap;
+}
+.enroll-student-class {
+  margin-left: auto;
+}
+@media (max-width: 760px) {
+  .enroll-search .search,
+  .enroll-search .search input {
+    width: 100%;
+  }
+}
+
