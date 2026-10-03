@@ -248,6 +248,43 @@ public class LedgerService {
         }
     }
 
+    /**
+     * 清空独立账本。仅在演示库重建时使用：数据库结构版本变化会删除全部业务表并重新灌入
+     * 数据，旧账本里的成绩快照已无对应行，必须与数据库一起重建，否则 {@code /integrity}
+     * 会把历史快照判成缺失。
+     *
+     * <p>该方法只清空本机教学账本文件，不触碰 EVM；锚定过的旧摘要按设计留在链上，
+     * 重建后会按新数据重新锚定。
+     */
+    public synchronized Map<String, Object> reset() throws Exception {
+        long before = Files.exists(file) ? Files.size(file) : 0;
+        List<Block> existing;
+        try {
+            existing = Files.exists(file) ? verifyLocal() : List.of();
+        } catch (ApiException e) {
+            // 旧账本与当前密钥不匹配（例如重新初始化过运行配置）时同样允许重建。
+            existing = List.of();
+        }
+        // 先清空 EVM 侧的锚点：旧摘要与新链无关，留着会让重新锚定因
+        // "Anchor conflict"（同一下标不同哈希）失败。
+        Object chainResult = null;
+        try {
+            chainResult = chain.postUrl(Settings.get("CHAIN_URL") + "/reset", Map.of(), Map.class);
+        } catch (Exception e) {
+            System.err.println("[LedgerService] 链锚点重置失败（继续重建账本）：" + e.getMessage());
+        }
+        Files.createDirectories(file.getParent());
+        Files.write(file, new byte[0]);
+        System.out.println(
+            "[LedgerService] 演示账本已重建：清除 "
+                + before
+                + " 字节，"
+                + existing.size()
+                + " 个区块；链锚点重置结果 "
+                + chainResult);
+        return Map.of("ok", true, "removedBlocks", existing.size(), "chain", Objects.toString(chainResult, "unavailable"));
+    }
+
     public synchronized Map<String, Object> read() {
         List<Block> blocks;
         try {

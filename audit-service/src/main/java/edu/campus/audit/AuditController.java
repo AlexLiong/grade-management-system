@@ -23,6 +23,12 @@ public class AuditController {
     return Map.of("ok", true, "count", events.size());
   }
 
+  /** 演示库重建时同步清空账本，避免旧快照与新数据库不一致。 */
+  @PostMapping("/internal/reset")
+  public Map<String, Object> reset() throws Exception {
+    return ledger.reset();
+  }
+
   @PostMapping("/internal/append")
   public Map<String, Object> append(@RequestBody Protocol.AuditEvent event) {
     return ledger.append(event);

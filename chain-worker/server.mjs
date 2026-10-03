@@ -134,6 +134,21 @@ async function handle(url, body) {
         fs.renameSync(anchorFile + ".tmp", anchorFile);
         return { transaction };
     }
+    if (url === "/reset") {
+        // 演示库重建时，审计服务会清空本机账本并重新灌入种子数据；
+        // 旧的锚点摘要与新链毫无关系，必须一并清空，否则重新锚定会因
+        // "Anchor conflict"（同一下标出现不同哈希）而失败。
+        // 生产环境不应暴露此端点：真实账本不允许被重置。
+        const removed = anchors.length;
+        anchors = [];
+        const fd = fs.openSync(anchorFile + ".tmp", "w");
+        fs.writeFileSync(fd, JSON.stringify(anchors));
+        fs.fsyncSync(fd);
+        fs.closeSync(fd);
+        fs.renameSync(anchorFile + ".tmp", anchorFile);
+        console.log(`[chain-worker] anchors reset: removed ${removed} entries`);
+        return { reset: true, removed };
+    }
     if (url === "/verify") {
         if (body.blocks.length !== anchors.length)
             throw new Error("Ledger length differs from independent EVM anchors");
