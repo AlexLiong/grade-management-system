@@ -3,5 +3,6 @@
 frontend/dist/
 .runtime/
 test-results/
+.logs/
 *.log
 .DS_Store
