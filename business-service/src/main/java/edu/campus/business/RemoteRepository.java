@@ -8,30 +8,95 @@ import org.springframework.stereotype.Component;
 public class RemoteRepository {
   private final RpcClient rpc = new RpcClient("business");
   public static final Map<String, List<String>> FIELDS =
-      Map.of(
-          "users",
-          List.of(
-              "id",
-              "username",
-              "password",
-              "name",
-              "role",
-              "permissions",
-              "department",
-              "enabled",
-              "version"),
-          "courses",
-          List.of("id", "code", "name", "term", "teacher_id", "credits", "weights", "version"),
-          "grades",
-          List.of("id", "course_id", "student_id", "payload", "state", "version"),
-          "enrollments",
-          List.of("id", "course_id", "student_id"),
-          "analyses",
-          List.of("id", "course_id", "content", "version"),
-          "sessions",
-          List.of("id", "user_id", "csrf", "expires"),
-          "login_limits",
-          List.of("id", "failures", "locked_until"));
+      Map.ofEntries(
+          Map.entry(
+              "users",
+              List.of(
+                  "id",
+                  "username",
+                  "password",
+                  "name",
+                  "role",
+                  "permissions",
+                  "department",
+                  "college_id",
+                  "major_id",
+                  "class_id",
+                  "enabled",
+                  "version")),
+          Map.entry(
+              "courses",
+              List.of(
+                  "id",
+                  "code",
+                  "name",
+                  "term",
+                  "teacher_id",
+                  "credits",
+                  "weights",
+                  "college_id",
+                  "class_id",
+                  "status",
+                  "version")),
+          Map.entry("grades", List.of("id", "course_id", "student_id", "payload", "state", "version")),
+          Map.entry(
+              "enrollments",
+              List.of(
+                  "id", "course_id", "student_id", "source", "publish_id", "selected_at", "status")),
+          Map.entry("analyses", List.of("id", "course_id", "content", "version")),
+          Map.entry("sessions", List.of("id", "user_id", "csrf", "expires")),
+          Map.entry("login_limits", List.of("id", "failures", "locked_until")),
+          Map.entry(
+              "colleges", List.of("id", "name", "code", "short_name", "description", "enabled", "version")),
+          Map.entry(
+              "majors",
+              List.of("id", "college_id", "name", "code", "degree", "years", "enabled", "version")),
+          Map.entry(
+              "classes",
+              List.of(
+                  "id",
+                  "major_id",
+                  "college_id",
+                  "name",
+                  "grade_year",
+                  "code",
+                  "enabled",
+                  "version")),
+          Map.entry(
+              "course_selections",
+              List.of(
+                  "id",
+                  "name",
+                  "term",
+                  "course_ids",
+                  "scope_college_ids",
+                  "scope_major_ids",
+                  "scope_class_ids",
+                  "start_time",
+                  "end_time",
+                  "min_enroll",
+                  "max_credits",
+                  "allow_add",
+                  "allow_drop",
+                  "allow_retake",
+                  "status",
+                  "published_by",
+                  "published_at",
+                  "note",
+                  "version")),
+          Map.entry(
+              "enrollment_records",
+              List.of(
+                  "id",
+                  "publish_id",
+                  "course_id",
+                  "code",
+                  "student_id",
+                  "term",
+                  "action",
+                  "reason",
+                  "operator",
+                  "created_at")));
 
   public List<Map<String, Object>> find(String table, Map<String, Object> where) {
     List<String> fields = FIELDS.get(table);
@@ -60,6 +125,12 @@ public class RemoteRepository {
     var rows = find(table, Map.of("id", id));
     ApiException.require(!rows.isEmpty(), 404, "记录不存在");
     return rows.get(0);
+  }
+
+  /** 可空查询：不存在时返回 null，用于“先查后建”的业务流程。 */
+  public Map<String, Object> findOne(String table, Map<String, Object> where) {
+    var rows = find(table, where);
+    return rows.isEmpty() ? null : rows.get(0);
   }
 
   public void mutate(List<Protocol.Operation> ops, String actor, String action, String resource) {

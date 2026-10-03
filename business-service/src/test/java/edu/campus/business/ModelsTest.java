@@ -26,8 +26,13 @@ class ModelsTest {
   @Test
   void permissionSetsCoverAllRoles() {
     assertEquals(Set.of("QUERY", "ENTRY", "MAINTAIN", "PREDICT"), Models.PERMISSIONS.get("TEACHER"));
-    assertEquals(Set.of("QUERY", "PREDICT"), Models.PERMISSIONS.get("STUDENT"));
-    assertEquals(Set.of("GRADE_ADMIN", "USER_ADMIN", "AUDIT"), Models.PERMISSIONS.get("ADMIN"));
+    // 学生新增 SELECTION_ENROLL：网上选课所需的学生侧权限。
+    assertEquals(
+        Set.of("QUERY", "PREDICT", "SELECTION_ENROLL"), Models.PERMISSIONS.get("STUDENT"));
+    // 管理员新增 ORG_ADMIN（组织管理）与 SELECTION_ADMIN（选课管理）。
+    assertEquals(
+        Set.of("GRADE_ADMIN", "USER_ADMIN", "AUDIT", "ORG_ADMIN", "SELECTION_ADMIN"),
+        Models.PERMISSIONS.get("ADMIN"));
   }
 
   @Test
