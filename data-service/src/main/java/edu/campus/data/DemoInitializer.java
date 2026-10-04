@@ -21,9 +21,11 @@ import org.springframework.stereotype.Component;
  * 演示数据初始化。
  *
  * <p>数据库按学院—专业—班级三级组织重建，覆盖 <b>4 所学院、8 个专业、21 个班级、
- * 3 名管理员、11 名教师、192 名学生（189 名已分班 + 3 名待分班），合计 206 个账号</b>，
+ * 3 名管理员/教务与 15 名教师（11 名演示教师 + 4 名不可登录的历史样本教师）、187 名学生
+ * （144 名正课学生 + 40 名历史样本学生 + 3 名待分班），合计 205 个账号</b>，
  * 并按学期铺开 <b>155 个教学班</b>（64 个正课 + 91 个历史样本教学班，2020-1 至 2026-1）、
- * <b>626 条选课</b>与 <b>1445 条成绩</b>，另预置一个进行中的选课批次。
+ * <b>1354 条选课</b>与 <b>1354 条成绩</b>，另预置一个进行中的选课批次。
+ * 启动时 {@link #purgeTestArtifacts()} 还会清掉端到端脚本留下的测试教学班与测试选课批次。
  *
  * <p>数据遵守选课系统的唯一性约束：
  *
@@ -67,6 +69,12 @@ public class DemoInitializer implements ApplicationRunner {
 
   /** 管理员账号：不归属任何学院/专业/班级。 */
   public static final Set<String> ADMIN_USERNAMES = Set.of("admin", "jw001", "jw002");
+
+  /**
+   * 禁用账号：历史样本教师。数据（课程、名单、成绩）完整，但不能登录——
+   * 它们的课是学业预警的训练样本，学期本身没有更早年份，不适合作为演示账号暴露在「我的课程」里。
+   */
+  public static final Set<String> DISABLED_USERNAMES = Set.of("ht2020", "ht2021", "ht2022", "ht2023");
 
   private static final String ADMIN_PERMISSIONS =
       "GRADE_ADMIN,USER_ADMIN,AUDIT,ORG_ADMIN,SELECTION_ADMIN";
@@ -119,7 +127,7 @@ public class DemoInitializer implements ApplicationRunner {
           new Org("B01005", "2020级-软件工程-2001班", "17", "M01001", "2020"),
           new Org("B02005", "2021级-工商管理-2101班", "18", "M02001", "2021"),
           new Org("B03005", "2022级-土木工程-2201班", "19", "M03001", "2022"),
-          new Org("B04005", "2022级-英语-2201班", "20", "M04001", "2022"),
+          new Org("B04005", "2023级-英语-2302班", "20", "M04001", "2023"),
           new Org("B01006", "2022级-软件工程-2202班", "21", "M01001", "2022"));
 
   // ------------------------------------------------------------------ 账号
@@ -169,7 +177,14 @@ public class DemoInitializer implements ApplicationRunner {
           // 外国语学院 · 英语
           teacher("t4101", "冯老师", "C04001", "M04001"),
           // 外国语学院 · 日语
-          teacher("t4201", "蒋老师", "C04001", "M04002"));
+          teacher("t4201", "蒋老师", "C04001", "M04002"),
+          // 历史样本教师：各带一个学期的历史教学班（见 SAMPLE_LAYERS）。它们不参与演示登录
+          // （{@link #DISABLED_USERNAMES} 里置为 enabled=0）：2020-1 这类最早的课没有更早年份，
+          // 若作为可登录教师，其「我的课程」会要求每门课都能预测，反而违背验收标准。
+          teacher("ht2020", "史料教师·2020-1", "C01001", "M01001"),
+          teacher("ht2021", "史料教师·2021-1", "C01001", "M01001"),
+          teacher("ht2022", "史料教师·2022-1", "C01001", "M01001"),
+          teacher("ht2023", "史料教师·2023-2", "C01001", "M01001"));
 
   /**
    * 学生：学号、姓名、班级编号（可为空表示待分班）、专业编号。
@@ -325,7 +340,7 @@ public class DemoInitializer implements ApplicationRunner {
     {"20241649", "邹清和", "B04004", "M04002"},
     {"20241650", "傅明溪", "B04004", "M04002"},
     {"20241651", "骆星原", "B04004", "M04002"},
-    // 历史样本学生：承载学业预警所需的历史成绩（见 SAMPLE_LAYERS）。
+    // 历史样本学生：承载学业预警所需的历史成绩（见 SAMPLE_LAYERS），每人每池 8 人。
     // 每个池对应一个历史样本层，池与池之间不共用学生，因此任何学生都不会在同一课程代码上
     // 出现两段记录（重修样本除外）；他们也完全不参与正课的整班铺开。
     {"20201601", "楚怀瑾", "B01005", "M01001"},
@@ -336,7 +351,6 @@ public class DemoInitializer implements ApplicationRunner {
     {"20201606", "江照微", "B01005", "M01001"},
     {"20201607", "白鹤洲", "B01005", "M01001"},
     {"20201608", "谢清玄", "B01005", "M01001"},
-    {"20201609", "顾长风", "B01005", "M01001"},
     {"20211601", "秦望山", "B02005", "M02001"},
     {"20211602", "柳含章", "B02005", "M02001"},
     {"20211603", "唐云起", "B02005", "M02001"},
@@ -345,7 +359,6 @@ public class DemoInitializer implements ApplicationRunner {
     {"20211606", "程若谷", "B02005", "M02001"},
     {"20211607", "傅明川", "B02005", "M02001"},
     {"20211608", "崔知白", "B02005", "M02001"},
-    {"20211609", "侯云疏", "B02005", "M02001"},
     {"20221601", "卢见山", "B03005", "M03001"},
     {"20221602", "余清许", "B03005", "M03001"},
     {"20221603", "邢照川", "B03005", "M03001"},
@@ -354,27 +367,24 @@ public class DemoInitializer implements ApplicationRunner {
     {"20221606", "洪清和", "B03005", "M03001"},
     {"20221607", "汪星舟", "B03005", "M03001"},
     {"20221608", "石沐雪", "B03005", "M03001"},
-    {"20221609", "田长风", "B03005", "M03001"},
-    {"20221610", "钟玉书", "B04005", "M04001"},
-    {"20221611", "姜长明", "B04005", "M04001"},
-    {"20221612", "范清昼", "B04005", "M04001"},
-    {"20221613", "彭听竹", "B04005", "M04001"},
-    {"20221614", "蒋拾月", "B04005", "M04001"},
-    {"20221615", "崔晏舟", "B04005", "M04001"},
-    {"20221616", "潘朝云", "B04005", "M04001"},
-    {"20221617", "于清和", "B04005", "M04001"},
-    {"20221618", "董明溪", "B04005", "M04001"},
+    {"20231649", "钟玉书", "B04005", "M04001"},
+    {"20231650", "姜长明", "B04005", "M04001"},
+    {"20231651", "范清昼", "B04005", "M04001"},
+    {"20231652", "彭听竹", "B04005", "M04001"},
+    {"20231653", "蒋拾月", "B04005", "M04001"},
+    {"20231654", "崔晏舟", "B04005", "M04001"},
+    {"20231655", "潘朝云", "B04005", "M04001"},
+    {"20231656", "于清和", "B04005", "M04001"},
     // 缓考样本池：为每门已提交成绩的正课补一名「有平时与实验、缺期末」的学生，
     // 让学业预警在这些课上也有可预测对象（名单来源见 PARTIAL_POOL_CLASS）。
-    {"20221619", "袁归远", "B01006", "M01001"},
-    {"20221620", "叶岁晚", "B01006", "M01001"},
-    {"20221621", "阎令昭", "B01006", "M01001"},
-    {"20221622", "章松雪", "B01006", "M01001"},
-    {"20221623", "卓清月", "B01006", "M01001"},
-    {"20221624", "施芷兰", "B01006", "M01001"},
-    {"20221625", "韦兰舟", "B01006", "M01001"},
-    {"20221626", "毕清禾", "B01006", "M01001"},
-    {"20221627", "郝云舒", "B01006", "M01001"},
+    {"20221609", "袁归远", "B01006", "M01001"},
+    {"20221610", "叶岁晚", "B01006", "M01001"},
+    {"20221611", "阎令昭", "B01006", "M01001"},
+    {"20221612", "章松雪", "B01006", "M01001"},
+    {"20221613", "卓清月", "B01006", "M01001"},
+    {"20221614", "施芷兰", "B01006", "M01001"},
+    {"20221615", "韦兰舟", "B01006", "M01001"},
+    {"20221616", "毕清禾", "B01006", "M01001"},
     // 待分班学生：班级留空、只归属到专业，用于演示「组织管理 → 批量调入学生」
     {"20241601", "安时雨", "", "M01001"},
     {"20241602", "柏舟", "", "M02001"},
@@ -523,19 +533,16 @@ public class DemoInitializer implements ApplicationRunner {
 
   // ---- 学业预警的历史成绩样本 ------------------------------------------
 
-  /** 历史样本教学班的任课教师：不是任何真实账号，避免混进「教师本人的课程」被要求可预测。 */
-  private static final String SAMPLE_TEACHER = "seed-history";
-
   /**
-   * 历史样本层：在 {@code term} 学期为 {@code codes} 里的每个课程代码开一个<b>只写成绩</b>的教学班，
-   * 成绩由 {@code poolClass} 班级的样本学生提供。
+   * 历史样本层：在 {@code term} 学期为 {@code codes} 里的每个课程代码开一个教学班，
+   * 名单与成绩都来自 {@code poolClass} 班级的样本学生（每层 8 人），任课教师是 {@code teacher}。
    *
    * <p>学业预警（{@code AnalyticsService.predict}）要求被预测课程代码在<b>更早学期</b>有 3 个不同年份、
    * 24 条三分项齐全的已提交成绩；而正课最早只到 2023-1，所以必须补 2020-1/2021-1/2022-1/2023-2
-   * 的历史教学班。这些教学班**不写选课记录**：否则它们自己也会成为「有学生选课、需要可预测」的课程，
-   * 又得再往前补 3 个年份，形成无限回归。样本学生因此不出现在任何正课名单与「我的课程」里。
+   * 的历史教学班。这些学期是最早的期次，没有任何更早学期可查，因此它们有选课与成绩也不会引入
+   * 新的覆盖要求（{@link #verifyPredictionCoverage()} 只校验真正的正课）。
    */
-  private record SampleLayer(String term, String poolClass, List<String> codes) {}
+  private record SampleLayer(String term, String poolClass, String teacher, List<String> codes) {}
 
   /** 2020-1 层：所有在 2023-1 有正课的 18 个代码——它们需要 2020/2021/2022 三个更早年份。 */
   private static final List<String> SAMPLE_CODES_2020 =
@@ -562,15 +569,15 @@ public class DemoInitializer implements ApplicationRunner {
 
   private static final List<SampleLayer> SAMPLE_LAYERS =
       List.of(
-          new SampleLayer("2020-1", "B01005", SAMPLE_CODES_2020),
-          new SampleLayer("2021-1", "B02005", SAMPLE_CODES_2021),
-          new SampleLayer("2022-1", "B03005", SAMPLE_CODES_2021),
-          new SampleLayer("2023-2", "B04005", SAMPLE_CODES_2023));
+          new SampleLayer("2020-1", "B01005", "ht2020", SAMPLE_CODES_2020),
+          new SampleLayer("2021-1", "B02005", "ht2021", SAMPLE_CODES_2021),
+          new SampleLayer("2022-1", "B03005", "ht2022", SAMPLE_CODES_2021),
+          new SampleLayer("2023-2", "B04005", "ht2023", SAMPLE_CODES_2023));
 
   /** 缓考样本池：为每门已提交成绩的正课补一名「有平时与实验、缺期末」的学生。 */
   private static final String PARTIAL_POOL_CLASS = "B01006";
 
-  /** 历史样本教学班：只写成绩、不写选课（见 {@link SampleLayer}）。 */
+  /** 历史样本教学班：有名单、有成绩，任课教师是各层的 {@code ht20xx}（不可登录）。 */
   private static final List<Course> SAMPLE_COURSES = buildSampleCourses();
 
   private static final Set<String> SAMPLE_COURSE_IDS = sampleCourseIds();
@@ -589,7 +596,7 @@ public class DemoInitializer implements ApplicationRunner {
                 code,
                 prototype.name(),
                 layer.term(),
-                SAMPLE_TEACHER,
+                layer.teacher(),
                 prototype.credits(),
                 prototype.college(),
                 layer.poolClass(),
@@ -673,6 +680,10 @@ public class DemoInitializer implements ApplicationRunner {
   @Override
   public void run(ApplicationArguments args) {
     boolean explicitReset = resetRequested();
+    // 清理测试残留放在最前面：系统没有课程/批次删除接口，端到端脚本留下的教学班与选课批次
+    // 只能在每次启动时兜底清掉；它按「名称含测试/低人数」或「学期不在本类声明的集合里」判断，
+    // 且发生在本次 seeding 之前，因此不会误删演示数据。
+    purgeTestArtifacts();
     long users = count("users");
     // 需要灌数据的三种情况：显式重置开关、结构重建丢弃了旧数据、或者库里本来就没账号。
     // wasRebuilt() 只在「原有业务数据被清空」时为 true，空库首次建表不算重建。
@@ -695,7 +706,6 @@ public class DemoInitializer implements ApplicationRunner {
       seedUsers();
       seedCourses();
       seedEnrollmentsAndGrades();
-      seedHistorySamples();
       seedCourseSelection();
       System.out.println(
           "[DemoInitializer] 数据已写入："
@@ -757,6 +767,60 @@ public class DemoInitializer implements ApplicationRunner {
     } catch (Exception ignored) {
     }
     catalog.init();
+  }
+
+  /** 本类声明的全部学期：清理测试残留时用它区分「不是演示数据的学期」。 */
+  private static Set<String> declaredTerms() {
+    Set<String> terms = new LinkedHashSet<>();
+    for (Course c : COURSES) terms.add(c.term());
+    for (Course c : SAMPLE_COURSES) terms.add(c.term());
+    return terms;
+  }
+
+  /**
+   * 清除测试残留：端到端脚本会在 {@code 2027-2} 之类的一次性学期里建教学班与选课批次，而系统
+   * <b>没有课程/批次的删除接口</b>，这些残留只能由初始化器在每次启动时兜底清理。
+   *
+   * <p>判据统一为「名称含『测试』或『低人数』」＋「学期/批次不在本类声明的集合内」，因此不会误删
+   * 演示数据本身；而且它在本次 seeding 之前执行，不会碰到刚写进去的数据。表间没有外键约束，
+   * 选课、成绩、选课流水与成绩分析都要按 course_id 自行级联删除。
+   */
+  private void purgeTestArtifacts() {
+    Set<String> declared = declaredTerms();
+    var doomedCourses = new ArrayList<String>();
+    for (var row : jdbc.queryForList("SELECT id,name,term FROM courses")) {
+      String name = column(row, "name");
+      if (name.contains("测试") || name.contains("低人数") || !declared.contains(column(row, "term")))
+        doomedCourses.add(column(row, "id"));
+    }
+    int enrollments = 0, grades = 0, records = 0;
+    for (String id : doomedCourses) {
+      enrollments += jdbc.update("DELETE FROM enrollments WHERE course_id=?", id);
+      grades += jdbc.update("DELETE FROM grades WHERE course_id=?", id);
+      records += jdbc.update("DELETE FROM enrollment_records WHERE course_id=?", id);
+      jdbc.update("DELETE FROM analyses WHERE course_id=?", id);
+      jdbc.update("DELETE FROM courses WHERE id=?", id);
+    }
+    var doomedSelections = new ArrayList<String>();
+    for (var row : jdbc.queryForList("SELECT id,name FROM course_selections")) {
+      String name = column(row, "name");
+      if (name.contains("测试") || name.contains("低人数")) doomedSelections.add(column(row, "id"));
+    }
+    for (String id : doomedSelections) {
+      records += jdbc.update("DELETE FROM enrollment_records WHERE publish_id=?", id);
+      jdbc.update("DELETE FROM course_selections WHERE id=?", id);
+    }
+    if (doomedCourses.isEmpty() && doomedSelections.isEmpty()) {
+      System.out.println("[DemoInitializer] 未发现测试课程/测试选课批次残留。");
+      return;
+    }
+    System.out.println(
+        "[DemoInitializer] 已清除 "
+            + doomedCourses.size() + " 门测试课程、"
+            + enrollments + " 条选课、"
+            + grades + " 条成绩、"
+            + doomedSelections.size() + " 个测试选课批次（另有 "
+            + records + " 条选课流水）。");
   }
 
   /** 演示库重建时同步清空独立账本与链锚点：旧快照指向已删除的成绩行。 */
@@ -916,12 +980,14 @@ public class DemoInitializer implements ApplicationRunner {
   private void verifyPredictionCoverage() {
     Map<String, Course> courses = coursesById();
     Map<String, GradeRow> grades = loadGrades();
-    // 需要支持预测的课程：有 ACTIVE 选课的教学班。
+    // 需要支持预测的课程：有 ACTIVE 选课的**正课**。历史样本教学班（SAMPLE_COURSES）是训练数据
+    // 本身，学期又在最早年份、没有任何更早学期可查，因此不参与这条覆盖要求。
     Set<String> targets = new LinkedHashSet<>();
     for (var row : jdbc.queryForList("SELECT course_id,status FROM enrollments")) {
       if (!"ACTIVE".equals(column(row, "status"))) continue;
       String courseId = column(row, "course_id");
-      if (courses.containsKey(courseId)) targets.add(courseId);
+      if (courses.containsKey(courseId) && !SAMPLE_COURSE_IDS.contains(courseId))
+        targets.add(courseId);
     }
     var report = new StringBuilder();
     for (String id : targets) {
@@ -979,7 +1045,7 @@ public class DemoInitializer implements ApplicationRunner {
     System.out.println(
         "[DemoInitializer] 学业预警覆盖自检通过："
             + targets.size()
-            + " 门有选课的课程全部可预测。"
+            + " 门有选课的正课全部可预测。"
             + report);
   }
 
@@ -1118,7 +1184,8 @@ public class DemoInitializer implements ApplicationRunner {
       rows.add(
           new Object[] {
             p.id(), p.id(), PASSWORDS.encode(DEFAULT_PASSWORD), p.name(), p.role(), p.permissions(),
-            department, blank(p.college()), blank(p.major()), blank(p.klass()), 1, 0
+            department, blank(p.college()), blank(p.major()), blank(p.klass()),
+            DISABLED_USERNAMES.contains(p.id()) ? 0 : 1, 0
           });
     }
     for (String[] s : STUDENTS) {
@@ -1195,7 +1262,8 @@ public class DemoInitializer implements ApplicationRunner {
    *
    * <p>此外为每门<b>已提交成绩</b>的正课补一名 {@link #PARTIAL_POOL_CLASS} 的「缓考」学生：
    * 他只有平时与实验成绩、没有期末成绩，是学业预警在这门课上的预测对象；否则接口虽然成功，
-   * 但 {@code results} 会是空的。历史样本教学班（{@link #SAMPLE_COURSES}）不在这里写选课。
+   * 但 {@code results} 会是空的。历史样本教学班（{@link #SAMPLE_COURSES}）与本池学生照常整班铺开，
+   * 做到「有成绩的人恰好就是选了这门课的人」。
    */
   private void seedEnrollmentsAndGrades() {
     String enrollSql =
@@ -1208,10 +1276,12 @@ public class DemoInitializer implements ApplicationRunner {
       // 待分班学生（班级为空）不参与任何教学班，只在组织管理里演示「批量调入学生」。
       if (!s[2].isBlank()) classStudents.computeIfAbsent(s[2], k -> new ArrayList<>()).add(s[0]);
     Set<String> retakePairs = retakePairs();
+    var all = new ArrayList<Course>(COURSES);
+    all.addAll(SAMPLE_COURSES);
 
     List<Object[]> enrollments = new ArrayList<>();
     int[] seq = {0};
-    for (Course c : COURSES) {
+    for (Course c : all) {
       List<String> roster =
           RETAKE_ONLY_COURSES.contains(c.id())
               ? List.of()
@@ -1262,32 +1332,8 @@ public class DemoInitializer implements ApplicationRunner {
   }
 
   /**
-   * 历史样本成绩：为每个历史样本教学班的每个样本学生写一条已提交成绩（平时/实验/期末齐全）。
-   *
-   * <p>只写成绩、不写选课：这些教学班因此不会成为「有学生选课的课程」，也就不需要自己的更早年份。
-   * 样本学生与正课学生完全不重叠，因此不会与 {@link #verifyTranscriptIntegrity()} 的
-   * 「同一学生跨学期修同一课程代码」约束冲突。
-   */
-  private void seedHistorySamples() {
-    String gradeSql =
-        "INSERT INTO grades(id,course_id,student_id,payload,state,version) VALUES(?,?,?,?,?,?)";
-    for (Course c : SAMPLE_COURSES)
-      for (String studentId : studentsOfClass(c.klass())) {
-        String gradeId = c.id() + "-g" + studentId;
-        String aad = gradeId + "|" + c.id() + "|" + studentId + "|SUBMITTED|0";
-        jdbc.update(
-            gradeSql,
-            gradeId,
-            c.id(),
-            studentId,
-            Crypto.encrypt(KEY, aad, samplePayload(c)),
-            "SUBMITTED",
-            0);
-      }
-  }
-
-  /**
    * 历史样本成绩：三分项齐全、分数有高有低（用独立的固定 {@link #SAMPLE_RNG}，与正课成绩互不影响）。
+   * 历史样本教学班通过 {@link #insertEnrollment} 写入，因此成绩与选课记录天然一一对应。
    */
   private static String samplePayload(Course c) {
     double regular = 45 + SAMPLE_RNG.nextInt(51);
@@ -1318,7 +1364,7 @@ public class DemoInitializer implements ApplicationRunner {
         new Object[] {
           c.id() + "-e" + seq[0], c.id(), studentId, "SEED", null, selectedAt(c.term()), "ACTIVE"
         });
-    String payload = payload(c, studentId);
+    String payload = SAMPLE_COURSE_IDS.contains(c.id()) ? samplePayload(c) : payload(c, studentId);
     if (payload == null) {
       // 当前学期：写入一条**暂存**成绩（只有平时与实验，期末未录入）。
       // 学业预警要预测的正是「期末还没考」的学生，没有这条暂存成绩就一个预测对象都筛不出来；
