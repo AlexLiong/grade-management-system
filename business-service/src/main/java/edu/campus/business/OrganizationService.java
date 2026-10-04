@@ -80,6 +80,18 @@ public class OrganizationService {
   }
 
   /**
+   * 把整层组织的 id → 名称灌进给定映射，不做 id 过滤。
+   *
+   * <p>用于「我要这一层的全部名称」的场景（如名单里顺带展示学院/专业/班级）：与
+   * {@link #names} 的区别是不需要先算出想要的 id 集合，因此调用方可以先取一次再按需查表，
+   * 而不是为每个层级各打一次全表 RPC。
+   */
+  public void namesInto(Models.Level level, Map<String, String> target) {
+    for (var row : repo.find(level.table, Map.of()))
+      target.put(Objects.toString(row.get("id"), ""), displayName(level, row));
+  }
+
+  /**
    * 组织显示名：班级按需求采用「XXXX级-XX专业-XX班」的形式，名称本身就已经是完整形式，
    * 因此直接返回 {@code name}；学院与专业同样返回各自的名称。
    *

@@ -30,48 +30,71 @@ public class TransactionService {
     this.tx = new TransactionTemplate(manager);
   }
 
+  /** 是否打印单次查询耗时（{@code -Dcampus.trace.sql=true}），用于定位页面加载的耗时来源。 */
+  private static final boolean TRACE = Boolean.getBoolean("campus.trace.sql");
+
   public String[][] select(Protocol.Selection s) {
+    long started = TRACE ? System.nanoTime() : 0;
     var q = compiler.select(s);
     // JDBC cursor pagination is portable across the four supported database drivers.
-    return jdbc.query(
-        q.sql(),
-        ps -> {
-          ps.setMaxRows(s.offset() + s.limit());
-          for (int i = 0; i < q.parameters().size(); i++)
-            ps.setObject(i + 1, q.parameters().get(i));
-        },
-        rs -> {
-          List<String[]> rows = new ArrayList<>();
-          int n = 0;
-          while (rs.next()) {
-            if (n++ < s.offset()) continue;
-            String[] row = new String[s.fields().size()];
-            for (int i = 0; i < row.length; i++) row[i] = rs.getString(i + 1);
-            rows.add(row);
-          }
-          if (s.table().equals("grades") && s.fields().contains("payload")) {
-            ApiException.require(
-                s.fields()
-                    .containsAll(List.of("id", "course_id", "student_id", "state", "version")),
-                400,
-                "成绩解密需要完整身份及版本字段");
-            for (String[] row : rows) {
-              String aad =
-                  row[s.fields().indexOf("id")]
-                      + "|"
-                      + row[s.fields().indexOf("course_id")]
-                      + "|"
-                      + row[s.fields().indexOf("student_id")]
-                      + "|"
-                      + row[s.fields().indexOf("state")]
-                      + "|"
-                      + row[s.fields().indexOf("version")];
-              int i = s.fields().indexOf("payload");
-              row[i] = Crypto.decrypt(Settings.get("DATA_KEY"), aad, row[i]);
-            }
-          }
-          return rows.toArray(String[][]::new);
-        });
+    var rows =
+        jdbc.query(
+            q.sql(),
+            ps -> {
+              ps.setMaxRows(s.offset() + s.limit());
+              for (int i = 0; i < q.parameters().size(); i++)
+                ps.setObject(i + 1, q.parameters().get(i));
+            },
+            rs -> {
+              List<String[]> out = new ArrayList<>();
+              int n = 0;
+              while (rs.next()) {
+                if (n++ < s.offset()) continue;
+                String[] row = new String[s.fields().size()];
+                for (int i = 0; i < row.length; i++) row[i] = rs.getString(i + 1);
+                out.add(row);
+              }
+              return out;
+            });
+    long queried = TRACE ? System.nanoTime() : 0;
+    if (s.table().equals("grades") && s.fields().contains("payload")) {
+      ApiException.require(
+          s.fields()
+              .containsAll(List.of("id", "course_id", "student_id", "state", "version")),
+          400,
+          "成绩解密需要完整身份及版本字段");
+      for (String[] row : rows) {
+        String aad =
+            row[s.fields().indexOf("id")]
+                + "|"
+                + row[s.fields().indexOf("course_id")]
+                + "|"
+                + row[s.fields().indexOf("student_id")]
+                + "|"
+                + row[s.fields().indexOf("state")]
+                + "|"
+                + row[s.fields().indexOf("version")];
+        int i = s.fields().indexOf("payload");
+        row[i] = Crypto.decrypt(Settings.get("DATA_KEY"), aad, row[i]);
+      }
+    }
+    if (TRACE) {
+      long total = (System.nanoTime() - started) / 1_000_000;
+      long query = (queried - started) / 1_000_000;
+      System.out.println(
+          "[sql] "
+              + s.table()
+              + " rows="
+              + rows.size()
+              + " query="
+              + query
+              + "ms decrypt="
+              + (total - query)
+              + "ms total="
+              + total
+              + "ms");
+    }
+    return rows.toArray(String[][]::new);
   }
 
   private Map<String, Object> row(String table, Object id) {

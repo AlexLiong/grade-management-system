@@ -648,11 +648,21 @@ class CourseServiceTest {
     var earlier = termCourse("c1", "CS102", "2023-1");
     when(repo.one("courses", "c2")).thenReturn(current);
     when(repo.findOne("courses", Map.of("id", "c2"))).thenReturn(current);
+    // roster 现在一次取回课程/选课/成绩三份数据后**在内存里 join**（原来每门更早教学班各查一次
+    // 选课，在千级数据下会放大成几百次 RPC），因此这几个 map 都要按全表查询来打桩。
+    when(repo.find("courses", Map.of())).thenReturn(List.of(current, earlier));
     when(repo.find("courses", Map.of("code", "CS102"))).thenReturn(List.of(earlier, current));
     when(repo.find("enrollments", Map.of("course_id", "c2")))
         .thenReturn(List.of(rosterEnrollment("c2", "s1"), rosterEnrollment("c2", "s2")));
     when(repo.find("enrollments", Map.of("course_id", "c1")))
         .thenReturn(List.of(rosterEnrollment("c1", "s1"), rosterEnrollment("c1", "s2")));
+    when(repo.find("enrollments", Map.of()))
+        .thenReturn(
+            List.of(
+                rosterEnrollment("c2", "s1"),
+                rosterEnrollment("c2", "s2"),
+                rosterEnrollment("c1", "s1"),
+                rosterEnrollment("c1", "s2")));
     when(repo.find("users", Map.of("role", "STUDENT")))
         .thenReturn(
             List.of(
@@ -707,12 +717,15 @@ class CourseServiceTest {
     when(repo.one("courses", "c2")).thenReturn(current);
     when(repo.findOne("courses", Map.of("id", "c2"))).thenReturn(current);
     // 同一课程代码只有本学期这一个教学班：更早学年挂的是另一门课程代码，不构成本课程的重修。
+    when(repo.find("courses", Map.of())).thenReturn(List.of(current, other));
     when(repo.find("courses", Map.of("code", "CS102"))).thenReturn(List.of(current));
     when(repo.find("courses", Map.of("code", "CS103"))).thenReturn(List.of(other));
     when(repo.find("enrollments", Map.of("course_id", "c2")))
         .thenReturn(List.of(rosterEnrollment("c2", "s1")));
     when(repo.find("enrollments", Map.of("course_id", "c9")))
         .thenReturn(List.of(rosterEnrollment("c9", "s1")));
+    when(repo.find("enrollments", Map.of()))
+        .thenReturn(List.of(rosterEnrollment("c2", "s1"), rosterEnrollment("c9", "s1")));
     when(repo.find("users", Map.of("role", "STUDENT")))
         .thenReturn(
             List.of(map("id", "s1", "name", "张三", "username", "s1", "role", "STUDENT")));

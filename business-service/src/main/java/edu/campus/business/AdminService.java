@@ -214,14 +214,25 @@ public class AdminService {
             for (var change : (List<Map<String, Object>>) event.get("changes"))
                 if (change.get("table").equals("grades"))
                     originals.put(change.get("id").toString(), (Map<String, Object>) change.get("after"));
+        // 账本里的 grades 变更就是全部历史成绩行，因此这里一次取回整张表在内存里比对，
+        // 而不是逐条 repo.find —— 后者每条都是一次完整的 RPC 往返（签名 + 加解密），
+        // 在千级账本下会把一次核查放大成几千次请求。
+        var current = currentGrades();
         List<Map<String, Object>> issues = new ArrayList<>();
         int checked = 0;
-        for (var entry : originals.entrySet()) {
-            try {
-                var current = repo.find("grades", Map.of("id", entry.getKey()));
+        if (current == null) {
+            // 批量读取因「存在无法解密的行」失败（data-service 解密报 409）：改为只对账本里
+            // 出现过的 id 逐条读取，把问题精确落到具体行上，语义与优化前完全一致。
+            // 注意只查账本里的 id —— 全表读一遍同样会撞上那一行。
+            issues.addAll(verifyRowByRow(originals));
+            checked = originals.size();
+        } else {
+            for (var entry : originals.entrySet()) {
                 var expected = entry.getValue();
+                var actual = current.get(entry.getKey());
                 if (expected.isEmpty()) {
-                    if (!current.isEmpty())
+                    // 账本记录的是「删除」，之后该行不应再出现。
+                    if (actual != null)
                         issues.add(
                                 Map.of(
                                         "id",
@@ -232,31 +243,19 @@ public class AdminService {
                                         expected));
                 } else {
                     expected.computeIfPresent("version", (k, v) -> v.toString());
-                    if (current.isEmpty() || !current.get(0).equals(expected)) {
+                    if (actual == null || !actual.equals(expected)) {
                         issues.add(
                                 Map.of(
                                         "id",
                                         entry.getKey(),
                                         "issue",
-                                        current.isEmpty() ? "MISSING" : "MISMATCH",
+                                        actual == null ? "MISSING" : "MISMATCH",
                                         "original",
-                                        Models.grade(expected)
-                                )
-                        );
+                                        Models.grade(expected)));
                     }
                 }
-            } catch (ApiException e) {
-                if (e.status != 409) throw e;
-                issues.add(
-                        Map.of(
-                                "id",
-                                entry.getKey(),
-                                "issue",
-                                "CIPHERTEXT_TAMPERED",
-                                "original",
-                                entry.getValue().isEmpty() ? Map.of() : Models.grade(entry.getValue())));
+                checked++;
             }
-            checked++;
         }
         // Query identifiers without decrypting payloads to detect rows fabricated directly in the
         // database.
@@ -281,6 +280,73 @@ public class AdminService {
                 ledger.get("head"),
                 "outbox",
                 repo.status());
+    }
+
+    /**
+     * 一次取回全部成绩行并按 id 归组；payload 由 data-service 解密后返回。
+     *
+     * @return id → 成绩行；若存在**无法解密**的行（密文被篡改）则返回 {@code null}，由调用方退化
+     *     为逐条核对。这个区分不能省：批量读取失败时返回空表会被误判成「所有行都缺失」。
+     */
+    private Map<String, Map<String, Object>> currentGrades() {
+        var byId = new LinkedHashMap<String, Map<String, Object>>();
+        try {
+            for (var row : repo.find("grades", Map.of()))
+                byId.put(Objects.toString(row.get("id"), ""), row);
+            return byId;
+        } catch (ApiException e) {
+            if (e.status != 409) throw e;
+            return null;
+        }
+    }
+
+    /**
+     * 逐条核对（仅在批量读取失败时使用）。
+     *
+     * <p>单条读取抛 409 就说明该行密文已被篡改，上报 {@code CIPHERTEXT_TAMPERED}；其余情况与
+     * 批量路径给出一致的 {@code MISSING} / {@code MISMATCH} 结论。
+     */
+    private List<Map<String, Object>> verifyRowByRow(Map<String, Map<String, Object>> originals) {
+        List<Map<String, Object>> issues = new ArrayList<>();
+        for (var entry : originals.entrySet()) {
+            var expected = entry.getValue();
+            try {
+                var rows = repo.find("grades", Map.of("id", entry.getKey()));
+                if (expected.isEmpty()) {
+                    if (!rows.isEmpty())
+                        issues.add(
+                                Map.of(
+                                        "id",
+                                        entry.getKey(),
+                                        "issue",
+                                        "DELETED_RECORD_REAPPEARED",
+                                        "original",
+                                        expected));
+                } else {
+                    expected.computeIfPresent("version", (k, v) -> v.toString());
+                    if (rows.isEmpty() || !rows.get(0).equals(expected))
+                        issues.add(
+                                Map.of(
+                                        "id",
+                                        entry.getKey(),
+                                        "issue",
+                                        rows.isEmpty() ? "MISSING" : "MISMATCH",
+                                        "original",
+                                        Models.grade(expected)));
+                }
+            } catch (ApiException e) {
+                if (e.status != 409) throw e;
+                issues.add(
+                        Map.of(
+                                "id",
+                                entry.getKey(),
+                                "issue",
+                                "CIPHERTEXT_TAMPERED",
+                                "original",
+                                expected.isEmpty() ? Map.of() : Models.grade(expected)));
+            }
+        }
+        return issues;
     }
 
     public void review(Models.User u, Map<String, Object> b) {

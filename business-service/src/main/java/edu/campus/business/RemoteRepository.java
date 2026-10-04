@@ -98,7 +98,35 @@ public class RemoteRepository {
                   "operator",
                   "created_at")));
 
+  /**
+   * 是否打印单次查询耗时。用 {@code -Dcampus.trace.repo=true} 打开：一次页面加载往往包含十几次
+   * {@code repo.find}，逐个猜哪个慢很低效，打开后按行看耗时最直接。
+   */
+  private static final boolean TRACE = Boolean.getBoolean("campus.trace.repo");
+
+  /**
+   * 单次查询的行数上限。
+   *
+   * <p>分页是为了不让一次 RPC 拉回整张表，但页太小会成倍放大开销：data-service 用
+   * {@code setMaxRows(offset + limit)} 实现游标分页，**每一页都要从头重扫**，而成绩行还带
+   * 加密 payload（要逐行 AES 解密）。实测 1445 条成绩按 500/页要 3 页 ≈ 500 ms，按 2000/页
+   * 只需 1 页。这里取 2000：既让常见表一次读完，又仍然给超大数据集留了分页兜底。
+   */
+  private static final int PAGE = 2000;
+
   public List<Map<String, Object>> find(String table, Map<String, Object> where) {
+    long started = TRACE ? System.nanoTime() : 0;
+    try {
+      return findPage(table, where);
+    } finally {
+      if (TRACE) {
+        long ms = (System.nanoTime() - started) / 1_000_000;
+        System.out.println("[repo] " + table + " " + where + " -> " + ms + " ms");
+      }
+    }
+  }
+
+  private List<Map<String, Object>> findPage(String table, Map<String, Object> where) {
     List<String> fields = FIELDS.get(table);
     List<Map<String, Object>> result = new ArrayList<>();
     int offset = 0;
@@ -107,15 +135,15 @@ public class RemoteRepository {
           rpc.post(
               "data",
               "/internal/select",
-              new Protocol.Selection(table, fields, where, "id", offset, 500),
+              new Protocol.Selection(table, fields, where, "id", offset, PAGE),
               String[][].class);
       for (String[] row : rows) {
         var m = new LinkedHashMap<String, Object>();
         for (int i = 0; i < fields.size(); i++) m.put(fields.get(i), row[i]);
         result.add(m);
       }
-      if (rows.length < 500) break;
-      offset += 500;
+      if (rows.length < PAGE) break;
+      offset += PAGE;
       ApiException.require(offset < 100000, 413, "查询结果过大，请缩小范围");
     }
     return result;

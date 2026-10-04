@@ -48,7 +48,10 @@ public class CourseService {
       courses.removeIf(c -> !ids.contains(c.get("id")));
     }
     courses.sort(Comparator.comparing(c -> c.get("term").toString(), Comparator.reverseOrder()));
-    return courses.stream().map(this::withOfferingCollege).toList();
+    // 学院名称取一次供整个列表复用；逐门调用会变成一门一次全表查询。
+    Map<String, String> colleges = new HashMap<>();
+    organizations.namesInto(Models.Level.COLLEGE, colleges);
+    return courses.stream().map(c -> withOfferingCollege(c, colleges)).toList();
   }
 
   /**
@@ -77,11 +80,15 @@ public class CourseService {
     Map<String, String> teachers = new HashMap<>();
     repo.find("users", Map.of("role", "TEACHER"))
         .forEach(t -> teachers.put(t.get("id").toString(), t.get("name").toString()));
+    // 学院与班级名称各取一次，供整个列表复用（此前每门课各查一次，155 门课就是 155 次全表查询）。
+    Map<String, String> colleges = new HashMap<>();
+    organizations.namesInto(Models.Level.COLLEGE, colleges);
+    var classNames = classNames(courses);
     var result = new ArrayList<Map<String, Object>>();
     for (var c : courses) {
-      var row = withOfferingCollege(c);
+      var row = withOfferingCollege(c, colleges);
       row.put("teacherName", teachers.getOrDefault(c.get("teacher_id"), ""));
-      row.put("className", classNames(List.of(c)).get(c.get("class_id")));
+      row.put("className", classNames.get(c.get("class_id")));
       result.add(row);
     }
     return result;
@@ -89,13 +96,30 @@ public class CourseService {
 
   /** 附加开设院系名称与面向班级名称，前端不需要理解内部编号。 */
   public Map<String, Object> withOfferingCollege(Map<String, Object> course) {
+    return withOfferingCollege(course, null);
+  }
+
+  /**
+   * 附加开设院系名称。
+   *
+   * @param colleges 已取回的「学院 id → 名称」表。**循环里务必传入**：此前每门课都单独查一次
+   *     学院表，一门课的列表就要打 155 次全表查询（实测占 `/courses` 请求的绝大部分耗时）。
+   *     传 null 时退化为单次查询，供只处理一门课的调用方使用。
+   */
+  public Map<String, Object> withOfferingCollege(
+      Map<String, Object> course, Map<String, String> colleges) {
     var row = new LinkedHashMap<>(course);
     String collegeId = text(course.get("college_id"));
-    row.put(
-        "collegeName",
-        collegeId == null
-            ? null
-            : organizations.names(Models.Level.COLLEGE, List.of(collegeId)).get(collegeId));
+    if (collegeId == null) {
+      row.put("collegeName", null);
+      return row;
+    }
+    Map<String, String> table = colleges;
+    if (table == null) {
+      table = new HashMap<>();
+      organizations.namesInto(Models.Level.COLLEGE, table);
+    }
+    row.put("collegeName", table.get(collegeId));
     return row;
   }
 
@@ -127,18 +151,36 @@ public class CourseService {
                 ? Map.of("course_id", id, "student_id", u.id())
                 : Map.of("course_id", id));
     Map<String, Map<String, Object>> users = new HashMap<>();
-    repo.find("users", Map.of("role", "STUDENT"))
-        .forEach(r -> users.put(r.get("id").toString(), r));
-    Map<String, String> colleges =
-        organizations.names(Models.Level.COLLEGE, collegeIds(users.values()));
-    Map<String, String> majors =
-        organizations.names(Models.Level.MAJOR, majorIds(users.values()));
-    Map<String, String> classes =
-        organizations.names(Models.Level.CLASS, classIds(users.values()));
+    var allStudents = repo.find("users", Map.of("role", "STUDENT"));
+    allStudents.forEach(r -> users.put(r.get("id").toString(), r));
+    // 三级组织名称一次取回：此前每个层级各查一次全表，一页名单要打三次组织表的 RPC。
+    Map<String, String> colleges = new HashMap<>(), majors = new HashMap<>(), classes = new HashMap<>();
+    organizations.namesInto(Models.Level.COLLEGE, colleges);
+    organizations.namesInto(Models.Level.MAJOR, majors);
+    organizations.namesInto(Models.Level.CLASS, classes);
     // 重修判定：本课程代码在更早学期是否有「已提交且不及格」的成绩。
-    var course = repo.findOne("courses", Map.of("id", id));
-    String code = course == null ? null : text(course.get("code"));
-    var failedBefore = failedCodesBefore(id, code);
+    // 课程、选课、成绩三份数据各取一次，在内存里 join（原来每门更早教学班都要查一次选课）。
+    var courses = repo.find("courses", Map.of());
+    String code = null;
+    String term = null;
+    var sameCode = new ArrayList<Map<String, Object>>();
+    for (var row : courses) {
+      if (id.equals(text(row.get("id")))) {
+        code = text(row.get("code"));
+        term = text(row.get("term"));
+      }
+    }
+    if (code != null)
+      for (var row : courses) if (code.equals(text(row.get("code")))) sameCode.add(row);
+    Set<String> failedBefore =
+        code == null
+            ? Set.<String>of()
+            : failedCodesBefore(
+                code,
+                term,
+                sameCode,
+                repo.find("enrollments", Map.of()),
+                repo.find("grades", Map.of()));
     return enrollments.stream()
         .filter(e -> !"DROPPED".equals(e.get("status")))
         .map(
@@ -165,40 +207,50 @@ public class CourseService {
    * 找出「在本课程更早学期、同一课程代码上挂过科」的学生。
    *
    * <p>只统计成绩已提交且有效分 &lt; 60 的记录；正在修读（成绩未出/未提交）与已退课都不算。
+   *
+   * <p>课程、选课、成绩三份数据都由调用方**一次取回**后在内存里 join：这些判断原本是
+   * 「每个更早教学班各查一次选课」，在千级数据下会放大成几百次 RPC 往返。
    */
-  private Set<String> failedCodesBefore(String courseId, String code) {
+  private Set<String> failedCodesBefore(
+      String code,
+      String term,
+      List<Map<String, Object>> sameCodeCourses,
+      List<Map<String, Object>> allEnrollments,
+      List<Map<String, Object>> allGrades) {
     var result = new HashSet<String>();
-    if (courseId == null || code == null) return result;
-    var course = repo.findOne("courses", Map.of("id", courseId));
-    String term = course == null ? null : text(course.get("term"));
-    if (term == null) return result;
+    if (code == null || term == null) return result;
     // 同一课程代码的其他教学班（不同学年开设），只保留更早学期。
-    var sameCode = new ArrayList<Map<String, Object>>();
-    for (var other : repo.find("courses", Map.of("code", code))) {
+    var sameCode = new ArrayList<String>();
+    for (var other : sameCodeCourses) {
       String otherTerm = text(other.get("term"));
       if (otherTerm == null || otherTerm.compareTo(term) >= 0) continue;
-      sameCode.add(other);
+      String otherId = text(other.get("id"));
+      if (otherId != null) sameCode.add(otherId);
     }
     if (sameCode.isEmpty()) return result;
+    var wanted = new HashSet<>(sameCode);
     var gradeIndex = new HashMap<String, Map<String, Object>>();
-    for (var grade : repo.find("grades", Map.of()))
+    for (var grade : allGrades)
       gradeIndex.put(text(grade.get("course_id")) + "|" + text(grade.get("student_id")), grade);
-    for (var other : sameCode) {
-      String otherId = text(other.get("id"));
-      for (var enrollment : repo.find("enrollments", Map.of("course_id", otherId))) {
-        if ("DROPPED".equals(text(enrollment.get("status")))) continue;
-        String studentId = text(enrollment.get("student_id"));
-        if (studentId == null) continue;
-        var grade = gradeIndex.get(otherId + "|" + studentId);
-        if (grade == null || !"SUBMITTED".equals(text(grade.get("state")))) continue;
-        try {
-          Double effective =
-              Models.effective(
-                  Models.object(grade.get("payload")), Models.object(other.get("weights")));
-          if (effective != null && effective < 60) result.add(studentId);
-        } catch (RuntimeException ignored) {
-          // 成绩损坏时按「不构成重修依据」处理，与本项目其他地方的口径一致。
-        }
+    var courseById = new HashMap<String, Map<String, Object>>();
+    for (var other : sameCodeCourses) courseById.put(text(other.get("id")), other);
+    for (var enrollment : allEnrollments) {
+      String otherId = text(enrollment.get("course_id"));
+      if (otherId == null || !wanted.contains(otherId)) continue;
+      if ("DROPPED".equals(text(enrollment.get("status")))) continue;
+      String studentId = text(enrollment.get("student_id"));
+      if (studentId == null) continue;
+      var grade = gradeIndex.get(otherId + "|" + studentId);
+      if (grade == null || !"SUBMITTED".equals(text(grade.get("state")))) continue;
+      var other = courseById.get(otherId);
+      if (other == null) continue;
+      try {
+        Double effective =
+            Models.effective(
+                Models.object(grade.get("payload")), Models.object(other.get("weights")));
+        if (effective != null && effective < 60) result.add(studentId);
+      } catch (RuntimeException ignored) {
+        // 成绩损坏时按「不构成重修依据」处理，与本项目其他地方的口径一致。
       }
     }
     return result;
