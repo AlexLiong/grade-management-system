@@ -12,6 +12,8 @@ classDiagram
     class LedgerService_Block["LedgerService.Block"]
     <<record>> LedgerService_Block
     LedgerService *-- LedgerService_Block
+    class LedgerService_Snapshot["LedgerService.Snapshot"]
+    LedgerService *-- LedgerService_Snapshot
 ```
 
 ## edu.campus.business

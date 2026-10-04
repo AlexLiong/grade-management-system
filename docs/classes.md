@@ -43,10 +43,18 @@
 - `KEY : String`
 - `file : java.nio.file.Path`
 - `chain : edu.campus.common.RpcClient`
+- `localVerified : edu.campus.audit.LedgerService.Snapshot`
+- `fullVerified : edu.campus.audit.LedgerService.Snapshot`
 - `SNAPSHOT_SECRETS : java.util.List<java.lang.String>`
 
 方法及构造器：
 
+- `fileSize() : long`
+- `fileModified() : long`
+- `invalidate() : void`
+- `verified(boolean) : java.util.List<edu.campus.audit.LedgerService.Block>`
+- `requireNotTruncated(int) : void`
+- `anchoredBlocks() : Integer`
 - `verifyLocal() : java.util.List<edu.campus.audit.LedgerService.Block>`
 - `verify() : java.util.List<edu.campus.audit.LedgerService.Block>`
 - `decode(edu.campus.audit.LedgerService.Block) : edu.campus.common.Protocol.AuditEvent`
@@ -88,6 +96,24 @@
 - `signature() : String`
 - `transaction() : String`
 
+## edu.campus.audit.LedgerService.Snapshot
+
+源码：[audit-service/src/main/java/edu/campus/audit/LedgerService.java](../audit-service/src/main/java/edu/campus/audit/LedgerService.java)。类型：CLASS。
+
+独立文件账本与 EVM 双重验证。AES-GCM 保护快照，哈希/HMAC 绑定顺序；完整校验后读写，事件 ID 幂等；文件落盘 fsync；输出原始证据与日志分类。
+
+此命名内部类型属于上面的组件职责；字段即值传递载荷或内部状态，成员清单以编译器解析结果为准。
+
+字段：
+
+- `blocks : java.util.List<edu.campus.audit.LedgerService.Block>`
+- `size : long`
+- `modified : long`
+
+方法及构造器：
+
+- `matches(java.nio.file.Path) : boolean`
+
 ## edu.campus.business.AdminService
 
 源码：[business-service/src/main/java/edu/campus/business/AdminService.java](../business-service/src/main/java/edu/campus/business/AdminService.java)。类型：CLASS。
@@ -111,6 +137,8 @@
 - `first(java.util.Map<java.lang.String,java.lang.Object>,String[]) : Object`
 - `saveUser(edu.campus.business.Models.User,java.util.Map<java.lang.String,java.lang.Object>) : void`
 - `integrity(edu.campus.business.Models.User) : java.util.Map<java.lang.String,java.lang.Object>`
+- `currentGrades() : java.util.Map<java.lang.String,java.util.Map<java.lang.String,java.lang.Object>>`
+- `verifyRowByRow(java.util.Map<java.lang.String,java.util.Map<java.lang.String,java.lang.Object>>) : java.util.List<java.util.Map<java.lang.String,java.lang.Object>>`
 - `review(edu.campus.business.Models.User,java.util.Map<java.lang.String,java.lang.Object>) : void`
 - `demoPassword(String) : java.util.Optional<java.lang.String>`
 
@@ -228,10 +256,11 @@ BCrypt 密码认证、失败锁定、随机会话、CSRF、Cookie、停用校验
 - `list(edu.campus.business.Models.User) : java.util.List<java.util.Map<java.lang.String,java.lang.Object>>`
 - `catalog(edu.campus.business.Models.User,String,String) : java.util.List<java.util.Map<java.lang.String,java.lang.Object>>`
 - `withOfferingCollege(java.util.Map<java.lang.String,java.lang.Object>) : java.util.Map<java.lang.String,java.lang.Object>`
+- `withOfferingCollege(java.util.Map<java.lang.String,java.lang.Object>,java.util.Map<java.lang.String,java.lang.String>) : java.util.Map<java.lang.String,java.lang.Object>`
 - `classNames(java.util.List<java.util.Map<java.lang.String,java.lang.Object>>) : java.util.Map<java.lang.String,java.lang.String>`
 - `text(Object) : String`
 - `roster(edu.campus.business.Models.User,String) : java.util.List<java.util.Map<java.lang.String,java.lang.Object>>`
-- `failedCodesBefore(String,String) : java.util.Set<java.lang.String>`
+- `failedCodesBefore(String,String,java.util.List<java.util.Map<java.lang.String,java.lang.Object>>,java.util.List<java.util.Map<java.lang.String,java.lang.Object>>,java.util.List<java.util.Map<java.lang.String,java.lang.Object>>) : java.util.Set<java.lang.String>`
 - `collegeIds(java.util.Collection<java.util.Map<java.lang.String,java.lang.Object>>) : java.util.List<java.lang.String>`
 - `majorIds(java.util.Collection<java.util.Map<java.lang.String,java.lang.Object>>) : java.util.List<java.lang.String>`
 - `classIds(java.util.Collection<java.util.Map<java.lang.String,java.lang.Object>>) : java.util.List<java.lang.String>`
@@ -382,6 +411,7 @@ BCrypt 密码认证、失败锁定、随机会话、CSRF、Cookie、停用校验
 - `requireOrganization(edu.campus.business.Models.Level,String) : java.util.Map<java.lang.String,java.lang.Object>`
 - `resolveOwn(edu.campus.business.Models.Level,Object) : String`
 - `names(edu.campus.business.Models.Level,java.util.Collection<java.lang.String>) : java.util.Map<java.lang.String,java.lang.String>`
+- `namesInto(edu.campus.business.Models.Level,java.util.Map<java.lang.String,java.lang.String>) : void`
 - `displayName(edu.campus.business.Models.Level,java.util.Map<java.lang.String,java.lang.Object>) : String`
 - `className(String,String,String) : String`
 - `enrichOwn(java.util.Map<java.lang.String,java.lang.Object>,java.util.Map<java.lang.String,edu.campus.business.Models.Level>) : java.util.Map<java.lang.String,java.lang.Object>`
@@ -453,10 +483,13 @@ BCrypt 密码认证、失败锁定、随机会话、CSRF、Cookie、停用校验
 
 - `rpc : edu.campus.common.RpcClient`
 - `FIELDS : java.util.Map<java.lang.String,java.util.List<java.lang.String>>`
+- `TRACE : boolean`
+- `PAGE : int`
 
 方法及构造器：
 
 - `find(String,java.util.Map<java.lang.String,java.lang.Object>) : java.util.List<java.util.Map<java.lang.String,java.lang.Object>>`
+- `findPage(String,java.util.Map<java.lang.String,java.lang.Object>) : java.util.List<java.util.Map<java.lang.String,java.lang.Object>>`
 - `one(String,String) : java.util.Map<java.lang.String,java.lang.Object>`
 - `findOne(String,java.util.Map<java.lang.String,java.lang.Object>) : java.util.Map<java.lang.String,java.lang.Object>`
 - `mutate(java.util.List<edu.campus.common.Protocol.Operation>,String,String,String) : void`
@@ -734,6 +767,8 @@ BCrypt 密码认证、失败锁定、随机会话、CSRF、Cookie、停用校验
 
 - `srandom : java.security.SecureRandom`
 - `PBKDF2_ITERATIONS : int`
+- `KEY_CACHE_LIMIT : int`
+- `KEY_CACHE : java.util.Map<java.lang.String,javax.crypto.spec.SecretKeySpec>`
 
 方法及构造器：
 
@@ -1042,6 +1077,7 @@ Webservice 远程调用客户端。HTTPS 使用可信证书校验，连接/请�
 - `DEFAULT_PASSWORD : String`
 - `PASSWORDS : BCryptPasswordEncoder`
 - `ADMIN_USERNAMES : java.util.Set<java.lang.String>`
+- `DISABLED_USERNAMES : java.util.Set<java.lang.String>`
 - `ADMIN_PERMISSIONS : String`
 - `COLLEGES : java.util.List<edu.campus.data.DemoInitializer.Org>`
 - `MAJORS : java.util.List<edu.campus.data.DemoInitializer.Org>`
@@ -1053,7 +1089,6 @@ Webservice 远程调用客户端。HTTPS 使用可信证书校验，连接/请�
 - `CURRENT_TERM : String`
 - `MIN_PREDICTION_YEARS : int`
 - `MIN_PREDICTION_SAMPLES : int`
-- `SAMPLE_TEACHER : String`
 - `SAMPLE_CODES_2020 : java.util.List<java.lang.String>`
 - `SAMPLE_CODES_2021 : java.util.List<java.lang.String>`
 - `SAMPLE_CODES_2023 : java.util.List<java.lang.String>`
@@ -1086,6 +1121,8 @@ Webservice 远程调用客户端。HTTPS 使用可信证书校验，连接/请�
 - `resetRequested() : boolean`
 - `count(String) : long`
 - `clearAll() : void`
+- `declaredTerms() : java.util.Set<java.lang.String>`
+- `purgeTestArtifacts() : void`
 - `resetLedger() : void`
 - `verifyOrganizationIntegrity() : void`
 - `verifyTranscriptIntegrity() : void`
@@ -1109,7 +1146,6 @@ Webservice 远程调用客户端。HTTPS 使用可信证书校验，连接/请�
 - `selectedAt(String) : String`
 - `seedEnrollmentsAndGrades() : void`
 - `seedPartialStudents(String,java.util.List<java.lang.Object[]>,int[]) : void`
-- `seedHistorySamples() : void`
 - `samplePayload(edu.campus.data.DemoInitializer.Course) : String`
 - `retakePairs() : java.util.Set<java.lang.String>`
 - `insertEnrollment(String,java.util.List<java.lang.Object[]>,int[],edu.campus.data.DemoInitializer.Course,String) : void`
@@ -1231,6 +1267,7 @@ Webservice 远程调用客户端。HTTPS 使用可信证书校验，连接/请�
 
 - `term : String`
 - `poolClass : String`
+- `teacher : String`
 - `codes : java.util.List<java.lang.String>`
 
 方法及构造器：
@@ -1240,6 +1277,7 @@ Webservice 远程调用客户端。HTTPS 使用可信证书校验，连接/请�
 - `equals(Object) : boolean`
 - `term() : String`
 - `poolClass() : String`
+- `teacher() : String`
 - `codes() : java.util.List<java.lang.String>`
 
 ## edu.campus.data.DemoInitializer.Retake
@@ -1395,6 +1433,7 @@ Webservice 远程调用客户端。HTTPS 使用可信证书校验，连接/请�
 - `catalog : edu.campus.data.SchemaCatalog`
 - `tx : TransactionTemplate`
 - `audit : edu.campus.common.RpcClient`
+- `TRACE : boolean`
 - `SNAPSHOT_SECRETS : java.util.Map<java.lang.String,java.util.List<java.lang.String>>`
 
 方法及构造器：
