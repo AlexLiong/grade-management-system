@@ -69,6 +69,8 @@
 | POST | `/selections/drop` | SELECTION_ENROLL / SELECTION_ADMIN | 退课（教务可代退） |
 | POST | `/selections/batch` | SELECTION_ADMIN | 按班级批量选课/退课 |
 
+成绩单图片识别与语音录入是**前端本地能力**，不在此表中：它们不新增任何接口，识别/解析结果经教师确认后写入录入表单，再走既有的 `/grades/save` 与 `/grades/transition`。界面动作与接口的对照见 [3.3 的「成绩录入辅助（前端本地能力）」](#成绩录入辅助前端本地能力)。
+
 ---
 
 ## 三、详细接口说明
@@ -321,6 +323,29 @@ GET /api/roster?courseId=c21-cs102b HTTP/1.1
 ```
 - 六项必须齐全，总和为 100
 - 已提交成绩后不可修改，需先撤销
+
+#### 成绩录入辅助（前端本地能力）
+
+**本节没有接口。** 成绩单图片识别（`frontend/src/ocr.js` + `components/RecognizePreview.vue`）与语音录入（`frontend/src/voice.js` + `components/VoicePanel.vue`）都是**纯前端能力**：识别、解析、列映射、逐格编辑全部在浏览器内完成，因此**不新增任何后端接口**，也不改变任何既有接口的请求体与响应体。两个功能的产物最终仍走下面这条既有链路。
+
+|界面动作|实际发生的调用|说明|
+|---|---|---|
+|点「识别成绩单」→ 选择图片|**无接口调用**|图片经 `URL.createObjectURL(file)` 在本页 `Image` + `Canvas` 读取，只用同源静态资源 `/ocr/worker.min.js`、`/ocr/core`、`/ocr/lang` 加载 tesseract.js 与其 `eng` 语言包；用完在 `finally` 里 `URL.revokeObjectURL(url)`。界面上限单张 10 MB、支持 PNG/JPEG/WebP（版式要求见 [ocr-voice-design.md](ocr-voice-design.md) 4.12）|
+|点「语音录入」→ 口述 / 文本框输入|**无接口调用**|`frontend/src/voice.js` 的中文数字与口语解析是纯函数；只有浏览器厂商的 `SpeechRecognition` 会处理音频（录音可能上行到厂商服务，界面要求逐次点击「开始识别」，原先那条固定隐私提示已按用户要求删除）|
+|切换录入对象（下拉框 / 上一行下一行 / 成绩表行内麦克风按钮）|**无接口调用**|纯前端：`VoicePanel.vue` 用 `rows` 渲染「录入对象」下拉框与上一行/下一行按钮，`App.vue` 的成绩表每行状态列另有麦克风按钮（`openVoice(row)`）；两条面板路径都只 `emit("select-target", row)`，由 `App.vue` 的 `@select-target="voiceTargetRow = $event"` 写回目标行。**语音与文本框通道都只解析分数，不再承担切行**（`voice.js` 已移除 `parseNavigation`）。既不改成绩、也不发请求（名册本身仍来自既有的 `GET /roster?courseId=`）|
+|预览里改格 / 改列映射 / 取消勾选|**无接口调用**|全部只改组件本地副本，`RecognizePreview.vue` 的注释即此口径：只负责展示 + 编辑 + 勾选 + 汇报|
+|预览里点「确认填入」/ 语音面板点「填入当前行」|**无接口调用**|`applyRecognized` / `applyVoice` 只把数值写进 `App.vue` 的录入表单草稿（走与手工输入同一个 `score()`，置 `dirty = true`），提示「已填入 N 人成绩，待暂存」|
+|点「暂存」|`POST /grades/save`（教师 `ENTRY`）|请求体与 3.3 完全一致：`{courseId, courseVersion, grades:[{studentId, version, scores}]}`，只提交 `state === "DRAFT"` 的成绩行|
+|点「提交」/「撤销提交」/「小撤销」/「大撤销」|`POST /grades/transition`（`MAINTAIN` / `GRADE_ADMIN`）|`action` 取 `SUBMIT`/`WITHDRAW`/`SMALL_REVOKE`/`DELETE_ALL`；识别与语音都不产生独立的"提交"路径|
+|成绩表数据来源|`GET /roster?courseId=`、`GET /grades?courseId=`|教师名单与已有成绩仍由这两个既有接口提供；预览的学号匹配用的是 `roster` 里的 `username`，**中文姓名不作为匹配依据**|
+
+**学号不猜人（识别侧的默认安全取向）**：OCR 给出的学号只有在"归一化后精确命中名册"或"差异能被已知字形混淆（`O→0`、`l→1`、`B→8`、`S→5`…）解释"时才自动填入；像 `9→0`、`5→4` 这类**纯数字位的差异**默认不认人——`correctId` 返回 `{username: null, unverified: true, candidate}`，`mapColumns` 因此把该行标成 `matched: false` 并给出「学号与名册有差异但无法确认，请人工核对」。只有在显式传 `allowDigitCorrection: true` 且差异**仅一位数字**时才自动认人（仍标「学号经自动纠正，请核对」）；多个候选在"编辑距离 + 混淆解释力"上完全并列时标 `ambiguous`，提示「学号有多个相近候选，请人工确认」。这三条都只是界面提示与草稿，**不产生任何接口调用**，也不改变上面的暂存/提交链路。规则细节与参数见 [ocr-voice-design.md](ocr-voice-design.md) 4.9。
+
+**权限**：两个入口按钮与「暂存」按钮使用同一个可见性条件——`isTeacher && can('ENTRY') && !submitted`（`App.vue` 模板）。成绩表每行的麦克风按钮（`data-testid="voice-<学号>"`）同样条件；成绩已全部提交（`submitted`）后按钮不渲染，成绩格也改为只读文本。也就是说，这两个能力**没有引入新的权限点**：能看到录入按钮，就能看到它们。
+
+**数据不出浏览器**：识别过程不产生任何图片上行请求，这一点由 `scripts/ocr-voice-check.mjs` 的断言锁定（统计「POST 且请求体含 PNG 字节」的请求数必须为 0，实测 0）。语音通道的唯一例外是浏览器厂商的语音识别服务——界面要求教师逐次点击「开始识别」才开麦，**但那条固定隐私提示已按用户要求从面板删除**，因此界面上不再有相关文案（事实记录见 [ocr-voice-design.md](ocr-voice-design.md) 2 节与 7.4 节）；成绩数据本身始终只在本页表单里处理，结果需教师确认后才写入，写入后仍需暂存才落库。
+
+设计细节（管线、按轮生成的候选表、双线性旋转、行带自适应切分、列分配容差、学号安全匹配、选优与停止条件、耗时与已知边界）见 [ocr-voice-design.md](ocr-voice-design.md)。
 
 ---
 

@@ -114,7 +114,7 @@ chain-worker 固定监听 `127.0.0.1:9545`（硬编码于 `chain-worker/server.m
 
 |配置|位置|说明|
 |---|---|---|
-|Vite 调试端口 5173 / HTTPS|`frontend/vite.config.js`|自动读取 `.runtime/localhost.key|.crt`；`/api`、`/health` 代理到 `https://localhost:8443`|
+|Vite 调试端口 5173 / HTTPS|`frontend/vite.config.js`|自动读取 `.runtime/localhost.key\|.crt`；`/api`、`/health` 代理到 `https://localhost:8443`|
 |`BROWSER_EXECUTABLE`|环境变量|Playwright 使用自定义浏览器可执行文件路径（`frontend/playwright.config.js:17`）|
 |e2e 基准地址 `https://localhost:8443`|`frontend/playwright.config.js`|要求全套服务已启动；串行执行（`workers: 1`）|
 
@@ -190,7 +190,7 @@ java -Dfile.encoding=UTF-8 -jar data-service/target/data-service-1.0.0.jar
 
 `verifyPredictionCoverage()` 在启动时校验正课的覆盖情况：「≥3 个更早年份 + ≥24 条样本 + 本班至少 1 人缺期末」，不满足即中止启动（遍历时显式排除历史样本教学班——它们没有更早年份可查）；当前启动日志：`学业预警覆盖自检通过：64 门有选课的正课全部可预测。` 暂存成绩不算通过/挂科，也不进入学业记录与重修判定。注意**预测只对进行中的课程有意义**：对已出分的历史课程调用 `/predict` 会返回 200 但 `results` 为空，前端会提示改选当前学期（2026-1）的课程。
 
-**启动即清理测试残留**：每次启动时、早于灌数，`DemoInitializer.purgeTestArtifacts()` 会清掉端到端脚本留下的测试教学班与测试选课批次（判据：名称含「测试」或「低人数」，或学期/批次不在演示数据声明的学期集合内），级联删除对应的选课、成绩、选课流水与分析。日志形如 `已清除 3 门测试课程、12 条选课、12 条成绩、2 个测试选课批次`；没有残留时打印「未发现测试课程/测试选课批次残留」。因此跑完测试**重启一次即可恢复干净界面**，不必再 `-ResetDb`。
+**启动即清理测试残留**：每次启动时、早于灌数，`DemoInitializer.purgeTestArtifacts()` 会清掉端到端脚本留下的测试教学班与测试选课批次（判据：名称含「测试」或「低人数」，或学期/批次不在演示数据声明的学期集合内），级联删除对应的选课、成绩、选课流水与分析。日志形如 `[DemoInitializer] 已清除 20 门测试课程、48 条选课、0 条成绩、0 个测试选课批次（另有 96 条选课流水）。`；没有残留时打印「未发现测试课程/测试选课批次残留」。因此跑完测试**重启一次即可恢复干净界面**，不必再 `-ResetDb`（本项目最近一次按 `-ResetDb` 整库重建的完整五条日志与复核见 [测试文档](testing.md) 的「演示数据恢复」）。
 
 **排障开关（默认关闭）**：`-Dcampus.trace.repo=true` 打印每次 `repo.find` 的耗时（定位业务侧往返次数），`-Dcampus.trace.sql=true` 打印数据服务每次查询/解密的耗时。例如：
 ```powershell

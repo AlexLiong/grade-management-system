@@ -14,7 +14,7 @@
 6. PDF 对预测同时提出“仅本人和教师可见”和“教师或管理员点击运行”。发生冲突时以隐私约束优先：管理员可查看统计/风险审计，无权获取个人预测分；本人或授课教师主动点击生成。
 7. PDF 要求根据数值类型决定 SQL 引号。本工程使用 JDBC 参数绑定实现同等类型语义，不直接把值拼接到 SQL。结构对象只接受白名单表和列，浏览器不携带任意 SQL。
 8. 预测收集至少三年同课程已提交历史数据，至少 24 个完整样本。样本不足返回 422，不以假预测填补。演示数据的历史样本由 `DemoInitializer` 铺开并在启动时自检（`verifyPredictionCoverage()`，只校验正课）；当前为 91 个历史样本教学班 × 8 人 = 728 条样本成绩。
-9. OCR/语音为二选一，选择浏览器本地 OCR，原图不上传服务器；数字和 ASCII 学号使用英文模型。中文姓名不作为自动匹配依据。识别文本必须人工核对再暂存。
+9. OCR/语音为二选一，选择浏览器本地 OCR，原图不上传服务器；数字和 ASCII 学号使用英文模型。中文姓名不作为自动匹配依据。识别文本必须人工核对再暂存。（本轮落地情况：OCR 与语音**都已实现**，但"本地化"这一取舍没有变——语音通道仍由浏览器厂商的 `SpeechRecognition` 承担音频处理，必须逐次点击「开始识别」才开麦（面板里原先那条固定隐私提示已按用户要求删除）；识别与解析本身都不上行数据，见第 32–37 条。）
 
 ## 新增需求解释（组织管理与网上选课）
 
@@ -82,6 +82,19 @@
 
 31. **暂存（`DRAFT`）成绩的边界**：暂存成绩只是**教师的在途录入**与**预测输入**——它不算通过、不算挂科、不进入学业记录（`/transcript` 只取 `SUBMITTED`）、不参与重修判定（选课侧与教师名单侧的判定都要求成绩已提交），也不影响已获学分与未通过课程统计。它出现在教师端成绩表（可继续编辑与提交）与 `/predict` 的预测对象里。
 
+## 第七轮需求解释（成绩录入辅助：本地 OCR + 语音录入）
+
+本节记录本轮新增的两个**纯前端**录入辅助能力（轮次沿用 `docs/testing.md` 的记录口径：第一至第五轮为业务功能轮，第六轮为「初始化数据重建 + 启动清理 + 性能优化」）。原始需求（第 9 条）已把 OCR/语音定为「二选一，选浏览器本地 OCR，原图不上传」，本轮把这一条落成可用功能，并补上此前未实现的语音通道。本轮**不新增任何后端接口、不新增权限点**：识别与解析的结果都只是录入表单的草稿，最终仍走第四轮以前就存在的暂存/提交与审计链路，因此安全设计与审计证据不受影响。
+
+功能落地后按三条用户反馈做了增补，需求口径同步更新在下面第 34–35 条：① 语音录入此前只能录第一行 → 增加"切换录入对象"的路径（「录入对象」下拉框 / 上一行下一行按钮，以及成绩表每行状态列的麦克风按钮，F54；**语音口令切行已按用户决定整个移除**）；② 用户问"图片识别是不是对格式有要求" → 用 8 种输入的对照实验定位到"深色截图"与"小字号截图"两类真实缺陷，补上深色自动反色与多尺度回退，并把支持/不支持的版式写进界面（F55）；③ 演示数据被端到端测试留下了测试课程 → 用 `-Dcampus.reset-db=true` 整库重建恢复初始状态（记录见 [testing.md](testing.md) 的「演示数据恢复」）。
+
+32. **图片识别纸质成绩单（本地 OCR）**：教师在成绩录入页点「识别成绩单」选择图片（PNG/JPEG/WebP，≤10MB），浏览器内完成「深色自动反色 → 多策略预处理 → 行带切分 → 逐行识别 → 列锚点与列分配 → 学号匹配 → 结构化」全链路，结果进入预览确认界面；教师逐格可改、整行可跳过，点「确认填入」后才写进录入表单（仍提示「待暂存」）。**图片不上传任何字节**，tesseract.js 的 worker、WASM 核心与 `eng` 语言包都从本站 `/ocr/*` 静态资源加载；blob URL 在识别结束的 `finally` 里 `revokeObjectURL` 释放。之所以选本地 OCR 而不是服务端识别：原图是学生的个人信息载体，把识别放在浏览器内可以让"图片离开本机"这件事在架构上不可能发生，而不只是靠承诺。
+33. **语音录入**：教师在工具栏「语音录入」或成绩表某行的麦克风按钮打开面板，可以口述（浏览器 `SpeechRecognition`，Chrome/Edge）或直接在文本框输入口述文本，两条通道共用同一套解析逻辑、**都只负责解析分数，不承担切行**。「平时八十五 实验九十二 期末八十七」「平时 85 分，实验 92」「八十五 九十二 八十七」都能解析；中文数字支持 0–999（含 `两`/`零`/`〇` 等写法）、小数（`八十五点五`、`85点5`）与混合写法。**具名的可以覆盖已有分数，裸数字只补空位**——口述「90 88 76」时无法确认说话人指的是哪一列，覆盖已有成绩是不可逆的误操作，因此用不掉的数字会在界面上明确提示「这些数字没有可用空位（该行已有成绩）」而不是静默丢弃。越界值（<0 或 >100）解析为 `rejected` 并提示，不写入。
+34. **语音录入可切换录入对象**：面板顶部有「录入对象」下拉框（列出全部可录入学生，选项形如 `第 N 行 · 学号 姓名`）、「上一行」「下一行」按钮（`stepRow` 夹取到 `[0, rows.length - 1]`、**不循环**，越界时对应按钮禁用），并显示 `当前行：<学号 姓名>（第 i / N 行）`；成绩表每行状态列的麦克风按钮（`data-testid="voice-<学号>"`）由 `App.vue` 的 `openVoice(row)` 处理，点哪一行就切到哪一行。这三条可视化路径都只 `emit("select-target", row)` 改当前行（`App.vue` 用 `@select-target="voiceTargetRow = $event"` 写回），不产生任何接口调用。**语音与文本框通道都只把口述/输入解析成分数**，切行一律走上述界面控件——`voice.js` 不再有 `parseNavigation`，面板里也没有命令行提示文案。
+35. **图片识别的输入格式与版式边界**：支持**一人一行**的成绩单（学号在最左列、成绩列在右边的数字表格），打印件、Excel/网页截图、手机拍照都可以；深色背景截图会自动反色（判据：平均灰度 < 110 且暗像素占比 > 55%），小字号截图有 1.5/2/3 倍的多尺度回退。**暂不支持**转置表（学生放在列、成绩放成行）、合并单元格跨多行的表头与手写分数（会尽力识别，但需人工核对）。界面上写明了同样的提示，并建议截图不要裁得太紧（保留表头与学号列）。**"识别不到"最常见的原因是版式不是"一人一行"**：本方案靠"学号定位行 + 列锚点定位列"，没有学号列的图无法把分数对应到学生（该行会被标成「未匹配到名册中的学号」）。
+36. **传输加密与临时存储即销毁**：本轮新增的链路没有"传输"也没有"临时存储服务端副本"——图片只存在于页面内存与 blob URL 中，用完立即 `revokeObjectURL`；识别每个变体时创建的 tesseract worker 在 `finally` 里 `terminate()`。既有的 HTTPS 统一入口、Cookie/CSRF 与网关鉴权规则不变。**语音通道是唯一例外**：浏览器厂商的语音识别可能把音频送到厂商服务，界面要求教师点击「开始识别」逐次确认（不会自动开麦），原先那条固定隐私提示已按用户要求删除；成绩数据本身仍只在本页表单中处理。
+37. **安全审计不受影响**：识别与语音都不直接写库（没有"导入即提交"的路径），确认填入后仍需点「暂存」触发 `POST /grades/save`，提交走 `POST /grades/transition`；因此审计动作、版本 CAS、补考规则与账本锚定全部沿用既有实现。可以验证的界面事实是「识别后表单尚未变化（需人工确认）」（实测 `69 → 69`）与「未匹配行默认不勾选（跳过）」（实测 `skipped=3/5`）。
+
 ## 功能追踪矩阵
 
 |编号|原文要求 / 页码|实现位置|验证|
@@ -133,13 +146,27 @@
 |F45|学业记录显示重修状态，第五轮|`GradeService.transcript/markRetakes/blank`, `App.vue`「我的成绩」的 `.badge.amber`|`/transcript` 学期倒序、第二次同代码标 `retake=true`/`retakeLabel=重修`、单次修读不标、暂存与退课不出现|
 |F46|学业记录统计口径按课程代码去重，第五轮|`App.vue` 的 `passedCourseCount`/`earnedCredits`/`pendingCourseCount`|已获课程与学分按 `code` 去重（重修不重复计学分）、已重修通过的课程不再计入未通过|
 |F47|学业预警可用（预测对象与样本口径），第五轮|`AnalyticsService.predict` 的样本与对象筛选, `DemoInitializer.verifyPredictionCoverage`/历史样本层/缓考样本池|`results[]` 返回「已有平时与实验、期末未录入」的学生、`low`/`high`/`warning`/`risk` 齐全；年份 < 3 或样本 < 24 → 422；训练失败 → 422 `MODEL_FAILURE`；已出分课程返回 200 + 空 `results`；每一门有 ACTIVE 选课的课程都可预测（启动自检）|
+|F48|图片识别纸质成绩单（本地链路 + 人工确认），第七轮|`App.vue` 的 `recognize`/`applyRecognized`/`ocrRows`/`ocrSummary`/`OCR_STAGES`/`ALLOW_DIGIT_CORRECTION`、`components/RecognizePreview.vue`、`ocr.js` 的 `loadCanvas`→`invertIfDark`→`recognizeBest`（含 `scaleSteps` 尺度回退）→`detectColumns`→`inferAnchors`→`assignColumns`→`mapColumns`→`buildPreview`|固定图集逐张走真实管线（最新一轮 `14:50:14`）：清晰打印体字段级 100%（30/30）、行匹配 9/9；阴影+噪点 100%；脏数据（缺列/超界/名册外学号/整行空格）均 100%；倾斜 2° 100%（最优变体 `gray-raw`）、倾斜 4° **91.7%**（11/12，`variants = 13`，最优变体 `gray`）；另有本轮 8 种输入的对照实验（深色截图反色、14px 小字、中文表头、倾斜 3°、透视等，见 [ocr-voice-design.md](ocr-voice-design.md) 4.12）；单元层 76/76；证据 `.runtime/logs/ocr-voice-check.json`、`ocr-voice-unit.json`（见 [ocr-voice-design.md](ocr-voice-design.md) 第九节）|
+|F49|语音录入（语音/文本双通道 + 中文数字文法），第七轮|`App.vue` 的 `openVoice`/`applyVoice`/`voiceDefaults`/`voiceTargetRow`、`components/VoicePanel.vue`、`voice.js` 的 `chineseToNumber`/`toNumber`/`scanUtterance`/`parseUtterance`/`toCellUpdates`/`speechSupport`/`createVoiceSession`/`COMPONENT_ALIASES`/`buildVoiceComponents`|单元层 76 条断言覆盖中文数字、小数、混合写法、口语别名、越界拒绝、裸数字只补空位等（`ocr-voice-unit.json` 的 `total = 76`）；浏览器层「中文口述解析为三项分数」「超界分数被拒绝并提示」「只提到一项时其余列不动」「裸数字无空位时提示」「行内麦克风切到该学生」「`SpeechRecognition` 桩驱动真实接入路径」|
+|F50|识别结果必须人工确认才进表单（预览网格），第七轮|`components/RecognizePreview.vue` 的 `draft`/`enabled`/`toggleRow`/`setValue`/`confirm`（`confirm` 只回传已勾选且有值的格子）、`App.vue` 的 `applyRecognized`|「识别后表单尚未变化（需人工确认）」实测 `69 → 69`；「未匹配行默认不勾选」实测 `skipped=3/5`；「坏行不影响其余行填入」；`data-testid` 统计项 `usable-count`/`filled-count`/`suspicious-count`|
+|F51|识别与语音的隐私边界（图片不上行、blob 用完释放、worker 用完终止），第七轮|`App.vue` 的 `URL.createObjectURL`/`finally { URL.revokeObjectURL(url) }`、`ocr.js` 的 `recognizeVariants` 的 `finally { worker.terminate() }`、`VoicePanel.vue` 的**逐次点击「开始识别」**才开麦|「整轮识别没有任何图片上行请求」通过（捕获「POST 且请求体含 PNG」的请求数为 0）；语音侧界面**不再显示**固定隐私提示（那条黄色提示框已按用户要求删除），事实记录见 [ocr-voice-design.md](ocr-voice-design.md) 2 节与 7.4 节；CSP 仅对 OCR 的 WebAssembly 编译放宽（见 [security.md](security.md) 的威胁表）|
+|F52|识别/语音仍走既有暂存、提交与审计，不新增接口，第七轮|`App.vue` 的 `saveGrades`→`POST /grades/save`、`transition`→`POST /grades/transition`；`ocr.js`/`voice.js` 不引用 `api.js`|确认填入后仅置 `dirty`，仍需点「暂存」；识别、语音与**切换录入对象**都没有独立写库路径（见 [api.md](api.md) 的「成绩录入辅助（前端本地能力）」）；既有浏览器回归 **57/57 已在演示数据重建后复跑通过**，端到端 201/201 仍是重建前 `2026-10-05 12:53:45` 的记录（本轮未复跑，见 [testing.md](testing.md) 的演示数据恢复一节）|
+|F53|**学号安全匹配：不能被已知混淆解释的差异不自动认人**，第七轮|`ocr.js` 的 `correctId`（`confusionHits === 0` 时返回 `{username: null, unverified: true, candidate}`；`allowDigitCorrection` 只放行"仅一位数字"的差异；同距离同解释力时标 `ambiguous` + `alternatives`）、`confusionHits`、`compact`、`mapColumns` 的四条学号文案、`App.vue` 的 `ALLOW_DIGIT_CORRECTION`|`scripts/ocr-voice-unit.mjs` 的 4 条断言：「数字位差异不被自动认人」（`correctId("20231539", ["20231530","20241530"])` 的 `username === null`）、「数字位差异标记为待人工确认」（`unverified === true`）、「无法确认的学号不写入任何学生」（`structureRows` 后 `matched === false`）、「无法确认的学号给出人工核对提示」（`issues` 含「人工核对」）；另有「精确匹配优先于编辑距离为 1 的其它学号」「多候选同距离时优先混淆能解释的」。证据 `.runtime/logs/ocr-voice-unit.json`（`total = 76`、`passed = 76`）|
+|F54|**语音录入可切换录入对象**（「录入对象」下拉框 / 上一行下一行按钮 / 成绩表行内麦克风按钮），第七轮|`VoicePanel.vue` 的 `rows` prop 与 `select-target` emit、`stepRow`/`gotoRow`/`rowKey`（`stepRow` 夹取到 `[0, rows.length - 1]`、不循环）、`App.vue` 的 `openVoice(row)` 与 `:rows="rows"` + `@select-target="voiceTargetRow = $event"`|单元 76 项不再含导航口令（`ocr-voice-unit.json`，`total = 76`、`passed = 76`）；浏览器 40 项含 4 条切行断言（下拉框列全部 / 下拉框选中 / 上一行 / 下一行）：「下一行」按钮（`20241530 → 20241531`）、「上一行」按钮（`20241531 → 20241530`）、下拉框列出全部学生（`options=9 rows=9`）、下拉框直接选中（`20241532 → 20241532`）（`ocr-voice-check.json`，`total = 40`、`passed = 40`）|
+|F55|**图片识别的输入格式兼容**（深色截图自动反色 + 小字号多尺度回退 + 明确的版式边界），第七轮|`ocr.js` 的 `invertIfDark`（被 `loadCanvas` 调用，判据"平均灰度 < 110 且暗像素占比 > 55%"）、`recognizeBest` 的 `scaleSteps`（默认 `[2, 3, 1.5]`）与 `buildVariants` 的 `scale`（先放大再纠偏）、`App.vue` 识别弹窗的 `.ocr-tips` 版式提示与 10 MB 上限|本轮 8 种输入的对照实验：基准 3/3、14px 小字 3/3、11px 极小字 2/3（中间行 `80→8` 丢位）、中文表头 3/3、深色截图**修复后** 3/3（修复前仅 2 行且缺列）、表格线很浅 3/3、倾斜 3° 修复后 3/3、透视 3/3 基本对；固定图集侧深色/小字相关结论见 `ocr-voice-check.json` 的 `accuracy[]` 与 [ocr-voice-design.md](ocr-voice-design.md) 4.1.1、4.1.2、4.12|
 |A01|均值±3σ、百分位、波动，8|`AnalyticsService.anomalies`|异常规则及管理员可见事件|
 |A02|线性回归，8–10|Weka `LinearRegression`|三年校验、留后一年验证、RMSE|
 |A03|决策树/树结构，9|Weka `REPTree`|树模型实际训练及文本输出|
 |A04|预测私密/不落库，10|`AnalyticsService.predict`|学生仅本人、管理员拒绝、模型临时对象|
-|A05|OCR/语音辅助，10|Tesseract.js 本地 OCR|图片识别、输入范围、人工确认|
+|A05|OCR/语音辅助，10|Tesseract.js 本地 OCR（原图不上传）|图片识别、输入范围、人工确认；本轮已实现并补上语音通道，见 `A08`–`A14` 与 [ocr-voice-design.md](ocr-voice-design.md)|
 |A06|区块链关键操作，10|Ganache EVM + `LedgerService`|提交/撤回/大撤销快照哈希、回执校验|
 |A07|LSTM/Transformer 日志分类，10|TensorFlow.js LSTM|合成训练集、独立验证集、实际推理|
+|A08|本地 OCR 的识别管线（深色自动反色 / 按轮生成的预处理候选 / 投影法倾斜估计 / baseline 自校正 / 小字号多尺度回退 / 自适应行带切分 / 逐行 PSM 7），第七轮|`ocr.js` 的 `VARIANTS`（常量表，当前不再逐个消费）/`loadCanvas`/`invertIfDark`/`estimateSkew`/`estimateTiltFromRows`/`segmentBands`/`recognizeSheet`/`recognizeBest`/`rankPasses`/`scoreVariant`/`variantQuality` 与内部 `stretch`/`otsu`/`adaptiveThreshold`/`rotateCanvas`（双线性插值）/`cropBand`/`buildVariants`（`scale` 先放大再纠偏）|`segmentBands` 切带与顺序（3 带）、`__testRotate` 旋转一致性；10 张固定图集经真实浏览器管线逐张统计（`ocr-voice-check.json` 的 `accuracy[]`：`elapsedMs`/`skew`/`bestVariant`/`variants`）；自校正的收益见 `skew-2deg` 100%；尺度回退与深色反色见 `F55` 与 [ocr-voice-design.md](ocr-voice-design.md) 4.1.1/4.1.2|
+|A09|学号匹配与列分配容错（精确优先、混淆纠正、编辑距离 ≤1、缺值不前移），第七轮|`ocr.js` 的 `fixConfusion`/`editDistance`/`correctId`/`idCandidates`/`assignColumns`/`rightEdge`/`singleDigit`/`inferAnchors`/`isRowUsable`|单元层：精确匹配优先于编辑距离为 1 的其它学号、多候选同距离时优先混淆可解释的、缺中间列留空不前移、个位残片不占用前一列、右对齐一位分数落在正确列；浏览器层 `confusable-id` 3/3 行匹配。安全侧见 `F53`|
+|A10|语音解析的中文数字文法与裸数字补位语义，第七轮|`voice.js` 的 `chineseToNumber`/`toNumber`/`scanUtterance`/`parseUtterance`/`toCellUpdates`|单元层 76 项含中文数字、小数、混合写法、别名映射、越界拒绝、裸数字只补空位、未提到的项保留原值，以及 OCR 侧的行带切分、列锚点与列分配、结构化与统计（`ocr-voice-unit.json` 的 `total = 76`）；浏览器层面板实测失败见 `voice-unmatched` 文案。**已不含导航口令**（语音口令切行已移除，`voice.js` 无 `parseNavigation`）|
+|A11|浏览器语音接入与降级，第七轮|`voice.js` 的 `speechSupport`/`createVoiceSession`（`lang=zh-CN`、`continuous`、`interimResults`、`maxAlternatives=1`）、`VoicePanel.vue` 的双通道与错误映射|浏览器层用 `SpeechRecognition` 桩验证「点击开始识别调用 `start`」与「识别回调文本进入解析」；不支持时渲染 `voice-unsupported` 并提示改用文本框（解析逻辑完全相同）|
+|A12|学号安全匹配（不可解释的差异不自动认人），第七轮|`ocr.js` 的 `correctId`/`confusionHits` 与 `mapColumns` 的 `unverified`/`ambiguous` 分支，`App.vue` 的 `ALLOW_DIGIT_CORRECTION`|`scripts/ocr-voice-unit.mjs`：「数字位差异不被自动认人」「数字位差异标记为待人工确认」「无法确认的学号不写入任何学生」「无法确认的学号给出人工核对提示」；证据 `.runtime/logs/ocr-voice-unit.json`（76/76）。设计规则见 [ocr-voice-design.md](ocr-voice-design.md) 4.9|
+|A14|深色背景自动反色，第七轮|`ocr.js` 的 `invertIfDark`（`loadCanvas` 内调用）|判据"平均灰度 < 110 且暗像素占比 > 55%"；本轮对照实验里暗色主题截图修复前只能认出 2 行且缺列，反色后 3/3 行全对（见 [ocr-voice-design.md](ocr-voice-design.md) 4.1.1 与 4.12）|
 |R01|HTTPS 统一入口、统一收集，11|`GatewayController`, `ApiController`|全部 `/api` 经网关处理|
 |R02|对象值传递/命名约定，11|`Protocol`, `RemoteRepository`|JSON 查询/操纵对象，主键与普通字段分离|
 |R03|SelectInterface 二维字符串数组，12|`DataRpcController.select`|签名远程查询，`String[][]`|
@@ -171,3 +198,7 @@
 - 管理员无组织使 `users` 表的组织字段出现「合法的全空」状态：所有按组织筛选的查询（组织成员、学生名册、按学院统计）都不会返回管理员，这是期望行为；管理员仍然通过角色权限参与组织维护与选课管理。
 - `/organizations/students` 的权限口径仍是 `ORG_ADMIN`（本轮未放宽为 `GRADE_ADMIN`）：课程界面的按课程选课弹窗用它取学生名单，失败时前端降级提示「学生列表不可用，仍可按班级整班处理」，此时仍可通过班级名称完成整班选课。
 - 重修是**状态**而不是课程属性：课程表 `courses` 没有任何重修字段，课程名也与重修无关；「谁在重修」由历史成绩派生（`SelectionService.failedCodes` / `CourseService.failedCodesBefore`），并以 `retake`/`retakeLabel`/`retakeCount` 下发。派生字段的代价是每次查询要读历史成绩，因此批量场景一次性读入成绩索引复用；若将来加入「重修报名」这类显式流程，应新增业务表而不是往课程名或课程行上挂标记。
+- 图片识别是**浏览器本地能力**：识别结果不产生任何后端请求，tesseract.js 的 worker、WASM 核心与 `eng` 语言包都是本站 `/ocr/*` 静态资源；图片只经 `createObjectURL` 在本页读取并在 `finally` 里 `revokeObjectURL`。它的准确率结论只覆盖 10 张合成图集（Edge 本机渲染）与本轮 8 种输入的对照实验，**不代表真实手机拍照的整体水平**。实测边界：倾斜 2° 100%（最优变体是**不纠偏**的 `gray-raw`）、倾斜 4° **91.7%**（11/12，`variants = 13`，最优变体 `gray`；上一轮同为该图集是 75% 且最优变体是 `gray-raw`，两次不同说明"纠偏 vs 不纠偏"没有恒定赢家）；11px 极小字仍有 `80→8` 这类丢位；残余错误是个位残片与漏读。**"识别不到"最常见的原因是版式不是"一人一行"**（转置表、或只截分数列没带学号列——没有学号就无法把分数对应到学生）。这些都是已知边界而不是回归。
+- 学号匹配遵循**安全优先**：OCR 结果只有在"归一化后精确命中名册"或"差异能被已知字形混淆解释"时才自动填入；`9→0`、`5→4` 这类纯数字位差异默认返回 `{username: null, unverified: true, candidate}`，既不写库也不写表单，只提示「学号与名册有差异但无法确认，请人工核对」；多个候选在"编辑距离 + 混淆解释力"上并列时标 `ambiguous`。自动认人需要显式传 `allowDigitCorrection: true` **且**差异仅一位数字；`App.vue` 用常量 `ALLOW_DIGIT_CORRECTION = true` **同时**传给 `recognizeBest`（选优）与 `buildPreview`（预览重建），因此两阶段口径一致，识别与预览都会自动认人并标「学号经自动纠正，请核对」（详见 [ocr-voice-design.md](ocr-voice-design.md) 4.9.3）。所有分支都只是预览界面的提示，不新增接口、不新增权限点。
+- 语音录入的两个通道能力相同、来源不同：文本框通道完全本地（解析是纯函数），麦克风通道的音频由浏览器厂商的 `SpeechRecognition` 处理、**可能上行到厂商服务**，因此界面要求教师逐次点击「开始识别」（不会自动开麦）；**原先那条固定隐私提示已按用户要求从面板删除**，界面上不再有相关文案。**切行只走界面控件（「录入对象」下拉框 / 上一行下一行按钮 / 成绩表行内麦克风按钮），不发任何请求**；语音与文本框通道都只解析分数。无论走哪条通道，结果都需教师确认才写入表单，且写入后仍需暂存才落库。
+- 识别与语音都**不新增权限点**：入口按钮与「暂存」按钮共用 `isTeacher && can('ENTRY') && !submitted` 这一个条件，成绩全部提交后按钮不渲染。

@@ -150,6 +150,46 @@ JDBC `ResultSet` 分页用于保持数据库可移植性。它会扫描到 offse
 
 按课程选课弹窗是唯一新增的写操作界面：`openEnrollment(course)` 读取 `GET /roster?courseId=`（当前名单）与 `GET /organizations/students?size=300`（学生候选，需要 `ORG_ADMIN`），提交 `POST /enrollments/batch` 后刷新名单与课程列表，并把 `added`/`skipped`/`removed` 与 `failed` 明细展示给管理员。学生名单接口的权限口径没有为本轮放宽：若当前账号缺少 `ORG_ADMIN`，前端捕获 403 后降级提示「学生列表不可用，仍可按班级整班处理」，仍可通过班级名称完成整班选课——这条降级路径不改变服务端的鉴权结论。
 
+## 成绩录入辅助（浏览器本地）
+
+成绩单图片识别与语音录入是**展示层内部的本地能力**，不是新的业务域，也没有新的服务边界：
+
+```mermaid
+flowchart LR
+  subgraph FE["展示层（Vue 3，网关 8443 之外的页面内）"]
+    OCR["ocr.js<br/>深色自动反色（invertIfDark）→ 预处理候选（按轮生成）→ 行带切分 → 逐行 PSM 7 → 基线自校正 → 小字号多尺度回退（scaleSteps）→ 列锚点 → 学号安全匹配"]
+    VOI["voice.js<br/>中文数字文法 → 字符级扫描 → 具名/裸数字语义"]
+    RP["RecognizePreview.vue<br/>逐格编辑 + 整行跳过 + 列映射"]
+    VP["VoicePanel.vue<br/>双通道 + 录入对象切换（下拉框 / 上一行下一行）+ 解析表"]
+    FORM["App.vue 录入表单草稿"]
+    TESS["/ocr/* 同源静态资源<br/>worker.min.js · core wasm · eng 语言包"]
+  end
+  OCR --> RP --> FORM
+  VOI --> VP --> FORM
+  TESS -.加载.-> OCR
+  FORM -->|POST /grades/save 暂存| GW[网关]
+  FORM -->|POST /grades/transition 提交/撤回| GW
+  GW --> BIZ[business-service 领域规则]
+  BIZ --> DATA[data-service 统一事务]
+  DATA --> AUD[独立审计账本]
+```
+
+它在分层中的位置与边界：
+
+|问题|结论|
+|---|---|
+|经过网关吗？|**不经过**。识别、解析、列映射、逐格编辑都在页面内完成；tesseract.js 的 worker/WASM/`eng` 语言包是本站静态资源（`frontend/public/ocr/`），由浏览器直接 GET，不构成 API 调用。后端接口一个都没有新增|
+|是新的领域服务吗？|**不是**。它不持有规则真相：成绩项来自课程的权重表（`activeComponents`）、名册来自 `GET /roster`、已有成绩来自 `GET /grades`，识别与语音只产出"待教师确认的填表建议"|
+|与录入表单的关系|确认填入与手工敲键走**同一个** `score()`，因此同样置 `dirty`，同样需要点「暂存」才落库；没有"导入即提交"的旁路|
+|与安全设计的衔接|不上传（图片只经 `createObjectURL` 在本页读取，`finally` 里 `revokeObjectURL`；每个候选的 worker 在 `finally` 里 `terminate()`）；需人工确认（预览组件只改本地副本，`confirm` 才回传）；最终仍走统一事务与审计（`/grades/save` → `DataService` 的 `Mutation` → 审计发件箱 → 账本与链锚定）。威胁表里的对应条目见 [security.md](security.md)|
+
+与既有设计的两个衔接点值得单独说明：
+
+1. **可解释优先于自动化**。预览行携带 `issues`（未匹配到名册中的学号、学号与名册有差异但无法确认、学号有多个相近候选、学号经自动纠正、分数超出 0–100、未识别到分数、缺少 N 项分数）与逐格 `confidence`，未匹配的行**默认不勾选**。这样"识别失败"表现为界面上的一条提示，而不是一条静默写错的成绩——这一点与选课域"已通过不得重选宁可 409 也不猜"的口径一致。学号这一层尤其如此：**差异无法被已知字形混淆解释时（如 `9→0`、`5→4`）默认不认人**（`correctId` 返回 `unverified`，`mapColumns` 置 `matched: false`），只有显式开启 `allowDigitCorrection` 且差异仅一位数字时才自动填入并标「请核对」。
+2. **中文不参与判定**。列名不靠识别中文表头，而由版面几何（列锚点）+ 教师确认的列映射确定；学号只匹配 ASCII/数字（含混淆纠正与编辑距离 ≤ 1、以及上述安全闸门），中文姓名只用于展示。语言包固定 `eng`，随之而来的已知边界（手写体、中文表头复杂版式）在 [ocr-voice-design.md](ocr-voice-design.md) 第十节如实列出。同一个取舍也决定了**版式前提**：管线是"学号定位行 + 列锚点定位列"，因此只支持一人一行、学号在最左列的成绩单；转置表或缺少学号列的截图无法把分数对应到学生（见同文 4.12，界面 `.ocr-tips` 也写了同样的提示）。
+
+代价与收益：把识别放在浏览器内，代价是要在页面里加载近 3 MB 的语言包与数 MB 的 WASM 核心、并且首个候选就要等约 1 秒（最新一轮实测清晰图 927–1406 ms），深色截图还要多一次整幅反色、小字号截图可能触发 1.5/2/3 倍的尺度回退（每一轮都要重建 tesseract worker 逐行识别，最贵的图集实测到 30.0 s）；收益是"原图离开本机"这件事在架构上不可能发生——这对成绩单这类带个人信息的载体比识别精度更重要。语音通道是唯一的数据出站口（浏览器厂商的语音识别可能上行音频），因此界面要求教师逐次点击「开始识别」；**原先面板里那条固定隐私提示已按用户要求删除**，界面上不再有相关文案（事实记在 [ocr-voice-design.md](ocr-voice-design.md) 2 节与 7.4 节）。
+
 ## 远程对象契约
 
 `Selection(table, fields, where, orderBy, offset, limit)`：`where` 使用字段到精确匹配值的映射。查询不携带 SQL 文本，也不混合数据操纵。`SelectInterface.select` 返回 `String[][]`，列顺序与 `fields` 一致。

@@ -1,6 +1,6 @@
 # 测试报告与验证证据
 
-本报告依据实际运行输出生成，不把尚未执行的平台或安全扫描写成通过。六轮（第一轮「组织管理与网上选课」、第二轮「8 条修正」、第三轮「侧栏拖动 + 编号回归主键 `id`」、第四轮「重修语义」、第五轮「学业记录重修状态 + 学业预警可用」、第六轮「初始化数据重建 + 启动清理 + 性能优化」）的原始证据都保存在 `.runtime/logs/`（`junit-summary.json`、`feature-test.json`、`browser-check.json`、`sidebar-resize-check.json`）、各模块 `target/surefire-reports/` 与 `test-results/browser/`（界面截图）；原始交付的摘要记录在 `docs/evidence/`（该目录在当前源码树中不存在，见「复现顺序」说明）。**本文档以第六轮冻结修订上的实测结果为当前值（250 / 201 / 57 / 28），前五轮的旧数字只在各自的小节里作历史对照。**
+本报告依据实际运行输出生成，不把尚未执行的平台或安全扫描写成通过。六轮（第一轮「组织管理与网上选课」、第二轮「8 条修正」、第三轮「侧栏拖动 + 编号回归主键 `id`」、第四轮「重修语义」、第五轮「学业记录重修状态 + 学业预警可用」、第六轮「初始化数据重建 + 启动清理 + 性能优化」）的原始证据都保存在 `.runtime/logs/`（`junit-summary.json`、`feature-test.json`、`browser-check.json`、`sidebar-resize-check.json`）、各模块 `target/surefire-reports/` 与 `test-results/browser/`（界面截图）；原始交付的摘要记录在 `docs/evidence/`（该目录在当前源码树中不存在，见「复现顺序」说明）。**本文档以第六轮冻结修订上的实测结果为当前值（250 / 201 / 57 / 28），第七轮新增的 OCR/语音两层为 76 / 40（见「第七轮（R7）说明」；其中既有浏览器检查 57 / 57 已在演示数据重建后按本轮复跑，端到端 201 / 201 仍是重建前 `2026-10-05 12:53:45` 的记录），前五轮的旧数字只在各自的小节里作历史对照。**
 
 ## 环境
 
@@ -13,6 +13,8 @@
 |Java 单元测试（第六轮实测 `mvn -o clean package`）|250|0|[junit-summary.json](../.runtime/logs/junit-summary.json)|
 |feature 端到端（第六轮重跑；第五轮为 201 条）|201|0|[feature-test.json](../.runtime/logs/feature-test.json)|
 |browser 真实浏览器（第六轮重跑；第五轮为 57 条）|57|0|[browser-check.json](../.runtime/logs/browser-check.json)|
+|OCR/语音纯函数单元（第七轮新增，未计入前六轮结论）|76|0|[ocr-voice-unit.json](../.runtime/logs/ocr-voice-unit.json)|
+|OCR/语音浏览器端到端（第七轮新增，未计入前六轮结论）|40|0|[ocr-voice-check.json](../.runtime/logs/ocr-voice-check.json)|
 |侧栏拖动专项检查（第四轮记录，未重跑）|28|0|[sidebar-resize-check.json](../.runtime/logs/sidebar-resize-check.json)|
 |api|18|0|[api.json](evidence/api.json)|
 |workflow|17|0|[workflow.json](evidence/workflow.json)|
@@ -295,6 +297,57 @@
 |`SchemaCatalogTest`|7|8|+1|结构版本过期触发整库重建，以及补列迁移路径的回归用例|
 |合计|71|101|+30|—|
 
+## 第七轮（R7）说明：成绩录入辅助（本地 OCR + 语音录入）
+
+第七轮新增两个**纯前端**录入辅助能力（设计见 [ocr-voice-design.md](ocr-voice-design.md)）：成绩单图片识别（`frontend/src/ocr.js` + `components/RecognizePreview.vue`）与语音录入（`frontend/src/voice.js` + `components/VoicePanel.vue`）。本轮**不新增后端接口、不新增权限点**，因此 Java 单元测试无需改动；新增两层前端测试，并在同一批改动后重跑了既有的两层前端回归。
+
+|验证项|结果|证据文件|文件时间（UTC）|
+|---|---|---|---|
+|OCR/语音纯函数单元 `node scripts/ocr-voice-unit.mjs`|**76 / 76 通过**（本轮移除语音口令切行："行切换口令""混合语句剥离"两节删除）|`.runtime/logs/ocr-voice-unit.json`|2026-10-05 14:48:56|
+|OCR/语音浏览器端到端 `node scripts/ocr-voice-check.mjs`|**40 / 40 通过**（本轮删除语音口令切行断言，保留 4 条可视化切行断言：下拉框列出全部 / 下拉框选中 / 上一行 / 下一行）|`.runtime/logs/ocr-voice-check.json`|2026-10-05 14:50:14|
+|既有端到端 `node scripts/feature-test.mjs`|**201 / 201 通过**（`12:53:45` 的记录，**演示数据重建前**；本轮未复跑，原因见下）|`.runtime/logs/feature-test.json`|2026-10-05 12:53:45|
+|既有浏览器 `node scripts/browser-check.mjs`（在**重建后的演示数据**上按本轮复跑）|**57 / 57 通过**|`.runtime/logs/browser-check.json`|2026-10-05 14:51:13|
+|固定测试图集 `node scripts/generate-ocr-fixtures.mjs`|**10 张 PNG** + 标注（比上一批多一张 `skew-4deg`）|`test-results/ocr/manifest.json`|2026-10-05 11:55:17|
+
+三层测试的分工：
+
+|层|测什么|为什么不放在别的层|
+|---|---|---|
+|单元（76 条）|中文数字文法、口语解析与裸数字补位、学号混淆纠正与编辑距离、**学号安全匹配（不可解释的数字位差异不自动认人、无法确认的学号不写入任何学生）**、行带切分、列锚点与列分配、结构化与统计（**不含导航口令**——语音口令切行已移除）|`voice.js` 的解析是纯函数；`ocr.js` 的纯函数部分不碰 DOM。放在 Node 里跑最快、最细，且能在没有浏览器与后端时回归|
+|浏览器端到端（40 条）|真实 Edge + 真实识别管线 + 真实页面数据：`[2]` 段用**固定图集**逐张统计字段级准确率；`[3]`/`[4]`/`[5]` 段用 `renderSheet(...)` **按当前课程真实学生动态渲染**的成绩单验证预览「未确认不入表单」、坏行不阻塞、语音面板与 `SpeechRecognition` 桩、**切换录入对象的可视化路径（下拉框 / 上一行 / 下一行）**、图片不上行|只有真浏览器里才会同时出现 Canvas、tesseract worker、Vue 响应式与网络请求，界面契约（`data-testid` 与统计数字）也只能在这里断言|
+|既有回归（201 + 57）|组织、选课、成绩、审计、打印等全部既有功能|证明"新增两个纯前端能力"没有破坏既有链路。**其中浏览器层是在演示数据重建之后复跑的 57 / 57**；`feature-test` 本轮未复跑（它会再次在 `2027-2` 留下测试课程与测试批次），因此引用 201 / 201 时必须带上 `2026-10-05 12:53:45` 与"重建前"这两个限定|
+
+**两层对"图"的分工必须说清楚**：**准确率用固定图集**（期望值冻结在 `test-results/ocr/manifest.json` 里，逐格比对才有意义；该段的名册用图集里出现过的 8 位学号临时构造，不绑定演示账号）；**交互断言用动态渲染图**（`ocr-voice-check.mjs` 的 `renderSheet(rows)` 在浏览器里用当前课程真实学生渲染成绩单再截图，因为固定图集的演示学号与课程名册不一定重合，用固定图做交互断言会因为"匹配不上名册"而假失败）。
+
+本轮**实测的准确率结论**（明细与逐图数据见 [ocr-voice-design.md](ocr-voice-design.md) 第九节，证据文件 `ocr-voice-check.json` 的 `accuracy[]`，`generatedAt = 2026-10-05T14:50:14.835Z`）：
+
+|图集类别|字段级准确率|备注|
+|---|---|---|
+|清晰打印体（`clean-2col`/`3col`/`6col` 合并）|**100%**（30/30）|单图 927–1406 ms，`variants = 1`（第一轮第一候选就收工，均为 `gray`）；行匹配 9/9|
+|阴影 + 噪点（`shadow-noise`）|**100%**（12/12）|1294 ms；最优候选是 `gray`，且 `variants = 1` 说明自适应阈值候选**根本没被跑到**——结论边界见设计文档 9.4 第 4 点|
+|脏数据（`dirty-missing-and-range` / `dirty-unknown-student` / `dirty-blank-row`）|**100%**（9/9 × 3）|缺列、超界 120、名册外学号、整行空分数都按设计留空并给出问题提示；`dirty-missing-and-range` 耗时 29956 ms、`variants = 16`（"完整"条件永远不成立，尺度回退与角度微调被反复试到穷尽）|
+|学号混淆（`confusable-id`）|66.7%（6/9）|962 ms；学号 `2023153O` 被纠正并匹配（行匹配 3/3，断言「学号混淆（0→O）能被纠正并匹配」实测 3/3）；丢的 3 格来自该行本身没读出的分数列|
+|倾斜 2°（`skew-2deg`）|**100%**（12/12）|2499 ms；投影法只估到 `skew = 0.41`，`estimateTiltFromRows` 用 tesseract baseline 量出残余倾斜后清空重跑一轮（自校正），行匹配 4/4；本轮最优变体是 **`gray-raw`（不纠偏的原始图）**|
+|倾斜 4°（`skew-4deg`）|**91.7%**（11/12）|16780 ms、`variants = 13`；行匹配 4/4，`missed` 只有一条「`20231530#2: 期望 87 实际 37`」（个位残片）。**上一轮同一图集为 75%（9/12）、最优变体是 `gray-raw`，本轮最优变体是 `gray`**——两次运行的最优变体不同，说明"纠偏 vs 不纠偏"没有恒定赢家，引用这条数字要带上 `variants` 与最优变体|
+
+隐私断言：`ocr-voice-check.mjs` 统计「POST 且请求体含 PNG 字节」的请求数，实测为 **0**，即整轮识别没有任何图片上行请求。语音通道是唯一的数据出站口（浏览器厂商的 `SpeechRecognition` 可能上行音频），界面要求教师**逐次点击「开始识别」**才开麦；**面板里那条固定隐私提示已按用户要求删除**，因此界面上不再有相关文案（事实记录见 [ocr-voice-design.md](ocr-voice-design.md) 2 节与 7.4 节）。
+
+### 演示数据恢复（本轮：显式重建开关 `-Dcampus.reset-db=true`）
+
+用户要求把演示数据恢复到初始状态。做法是**停掉 data-service，再用显式重建开关重启**（等价于 `scripts/start.ps1 -ResetDb`，脚本里 `if ($ResetDb) { $arguments += '-Dcampus.reset-db=true' }`）：`DemoInitializer` 先执行 `purgeTestArtifacts()` 清掉测试残留，再 `clearAll()` 删掉全部业务表并整库重建，最后跑三项自检。启动日志原文（本轮实测，五条）：
+
+```text
+[DemoInitializer] 已清除 20 门测试课程、48 条选课、0 条成绩、0 个测试选课批次（另有 96 条选课流水）。
+[DemoInitializer] 收到显式重建开关，删除全部业务表并重新灌入数据。
+[DemoInitializer] 数据已写入：4 个学院、8 个专业、21 个班级、205 个账号、155 个教学班、1354 条选课、1354 条成绩、1 个选课批次。
+[DemoInitializer] 成绩单自检通过：5 名重修学生（3 个课程代码）、184 名学生，无「已通过重选」的跨学期重复课程代码。
+[DemoInitializer] 学业预警覆盖自检通过：64 门有选课的正课全部可预测。
+```
+
+重建后复核：教师 `t1101` 的课程列表回到 **7 门**——`2026-1 CS301 网络软件与安全`、`2025-1 CS401 软件工程`、`2025-1 CS301c`、`2024-1 CS201 数据结构`、`2024-1 CS301b`、`2023-1 CS101 计算机导论`、`2023-1 CS301a`，**不再有 `2027-2` 的测试课程**。（这 7 门与源码里 `DemoInitializer.COURSES` 中 `teacher_id = "t1101"` 的条目一一对应：`c24-cs301` / `c19-cs401a` / `c38-cs301c` / `c10-cs201` / `c37-cs301b` / `c1-cs101` / `c36-cs301a`。）规模与第六轮的 205 账号 / 155 教学班 / 1354 选课 / 1354 成绩一致（见上文「数据重建后的实际规模」），因此这不是"换了一套数据"，只是把测试残留清掉后按同一套种子重建。
+
+> **跑完测试后请重启一次服务**：`scripts/feature-test.mjs` 每次运行都会在测试学期 `2027-2` 新建教学班与选课批次，而系统没有课程/批次的删除接口。**不需要 `-ResetDb`**——只要用 `scripts/start.ps1` 重启一次，`DemoInitializer.purgeTestArtifacts()` 就会在灌数前把它们连同选课、成绩、选课流水与分析一起清掉（日志形如上面第一条）。这也正是本轮 `feature-test.json` 停在 `12:53:45`（重建前）而没有复跑的原因：复跑会再次留下测试课程。详见 [演示账号与场景指南.md](演示账号与场景指南.md) 的「两个必须知道的行为」。
+
 ## api · 2026-09-08T16:40:00.312Z
 
 |检查|结果|耗时 ms|
@@ -529,7 +582,7 @@ Ganache 7.9.2 捆绑部分依赖，兼容修复后仍有 elliptic、secp256k1、
 
 `scripts/browser-check.mjs` 用 Playwright 驱动真实浏览器，验证登录页、按角色的导航、身份行、侧栏宽度调节、合并后的选课管理页、按课程选课弹窗、重修徽标、学业记录的「我的成绩」与学业预警页的渲染，结果写入 `.runtime/logs/browser-check.json`，截图落在 `test-results/browser/`。
 
-**第六轮在重建后的演示数据上实测 57 / 57 通过、0 失败**（`generatedAt = 2026-10-04T13:26:43.751Z`，本机 21:26:43）。历史对照：第五轮 57 / 57（`2026-10-03T16:36:25.085Z`）、第四轮 50 / 50（`15:31:12.652Z`）、第三轮 44 / 44（`14:38:54.625Z`）、第二轮 35 / 35（`13:37:05.939Z`）。基址都是 `https://127.0.0.1:5173`（前端 Vite 开发服务器，不是网关 8443），三种身份（管理员 / 教师 / 学生）全部覆盖。断言数量与第五轮相同（重建数据不影响断言数），第 49–55 条仍是第五轮新增的那 7 条。
+**第六轮在重建后的演示数据上实测 57 / 57 通过、0 失败**（`generatedAt = 2026-10-04T13:26:43.751Z`，本机 21:26:43）。**本轮（R7 后续）又在演示数据按 `-Dcampus.reset-db=true` 重建之后复跑了一次，仍是 57 / 57 通过、0 失败**（`generatedAt = 2026-10-05T14:51:13.142Z`；同一次会话里的 `ocr-voice-check` 是 `14:50:14`）。历史对照：第五轮 57 / 57（`2026-10-03T16:36:25.085Z`）、第四轮 50 / 50（`15:31:12.652Z`）、第三轮 44 / 44（`14:38:54.625Z`）、第二轮 35 / 35（`13:37:05.939Z`）。基址都是 `https://127.0.0.1:5173`（前端 Vite 开发服务器，不是网关 8443），三种身份（管理员 / 教师 / 学生）全部覆盖。断言数量与第五轮相同（重建数据不影响断言数），第 49–55 条仍是第五轮新增的那 7 条。
 
 第五轮新增 7 条断言（第 49–55 条，逐条见上文「第五轮（R5）说明」的浏览器小节）：`「我的成绩」显示重修徽标`、`两行课程名一致且不含重修后缀`、`有 2 行程序设计基础（挂科 + 重修）`、`学业预警页有生成预测按钮`、`学业预警不再提示「数据不足」`、`学业预警给出训练年份与样本数`、`学业预警渲染出预测结果行`；第 56、57 条仍是「无未捕获页面错误」「无致命控制台错误」。
 
@@ -602,6 +655,7 @@ Ganache 7.9.2 捆绑部分依赖，兼容修复后仍有 elliptic、secp256k1、
 - [sidebar-resized-wide.png](../test-results/browser/sidebar-resized-wide.png)、[sidebar-resized-compact.png](../test-results/browser/sidebar-resized-compact.png)、[sidebar-resized-icononly.png](../test-results/browser/sidebar-resized-icononly.png)、[sidebar-resized-icon-only.png](../test-results/browser/sidebar-resized-icon-only.png)、[sidebar-resized-persisted.png](../test-results/browser/sidebar-resized-persisted.png)（第三轮：拖动到宽栏 / 紧凑档 / 仅图标档 / 刷新后保持宽度）
 - [org-form-no-code.png](../test-results/browser/org-form-no-code.png)、[org-created-by-id.png](../test-results/browser/org-created-by-id.png)（第三轮：新建表单已无编号输入框、新建回执给出主键编号）
 - [selection-student-live.png](../test-results/browser/selection-student-live.png)（由 `scripts/capture-selection.mjs` 生成：教务临时发布一个生效批次 → 学生打开选课台 → 截图 → 清理批次）
+- [ocr-preview.png](../test-results/browser/ocr-preview.png)（第七轮：`scripts/ocr-voice-check.mjs` 在识别 `clean-3col` 后截取的识别结果预览界面，含列对应下拉、逐格编辑、行置信度与问题说明）
 
 ## 复现顺序
 
@@ -610,11 +664,14 @@ Ganache 7.9.2 捆绑部分依赖，兼容修复后仍有 elliptic、secp256k1、
 ```text
 mvn -o clean package                  # 250 条 Java 单元测试，第六轮冻结修订上实测全绿
 # 由 scripts/start.ps1（或 scripts/start.sh）启动四个 Java 服务与 chain-worker
-node scripts/feature-test.mjs         # 端到端断言 201 条（第六轮在重建后的数据上重跑）
+node scripts/feature-test.mjs         # 端到端断言 201 条（第六轮记录；本轮未复跑——它会再次在 2027-2 留下测试课程，现有证据是 2026-10-05 12:53:45 的记录）
 # 另开前端开发服务器（默认 https://127.0.0.1:5173）后：
-node scripts/browser-check.mjs        # 真实浏览器检查 57 条（第六轮在重建后的数据上重跑）
+node scripts/browser-check.mjs        # 真实浏览器检查 57 条（本轮在按 -ResetDb 重建后的演示数据上复跑 57/57）
 node scripts/verify-sidebar-resize.mjs # 侧栏拖动专项检查 28 条（见 .runtime/logs/sidebar-resize-check.json）
 node scripts/capture-selection.mjs    # 生成学生选课台截图（可选，用于人工查看）
+node scripts/generate-ocr-fixtures.mjs # 生成 OCR 固定测试图集 10 张到 test-results/ocr/（第七轮；加 --force 重新生成）
+node scripts/ocr-voice-unit.mjs       # OCR/语音纯函数单元测试 76 条（第七轮；本轮移除语音口令切行）
+node scripts/ocr-voice-check.mjs      # OCR/语音浏览器端到端 40 条 + 逐图字段级准确率（第七轮，需四个服务与前端开发服务器同时运行）
 node scripts/junit-summary.mjs        # 汇总各模块 surefire 报告为 .runtime/logs/junit-summary.json
 node scripts/generate-docs.mjs --check # 生成式文档与源码一致（64 个 Java 命名类型）
 ```
@@ -626,13 +683,15 @@ node scripts/generate-docs.mjs --check # 生成式文档与源码一致（64 个
 学期为 `2027-2` 的测试课程——它们不影响任何断言（演示数据集中在 `2023-1`–`2026-1`），但会让界面变乱。
 
 **现在不需要 `-ResetDb`**：第六轮起 `DemoInitializer.purgeTestArtifacts()` 会在**每次启动时**（早于灌数）自动清掉这些测试课程与测试批次，
-并按 `course_id` 级联删除对应的选课、成绩、选课流水与分析，日志形如 `已清除 3 门测试课程、12 条选课、12 条成绩、2 个测试选课批次`
+并按 `course_id` 级联删除对应的选课、成绩、选课流水与分析，日志形如 `[DemoInitializer] 已清除 20 门测试课程、48 条选课、0 条成绩、0 个测试选课批次（另有 96 条选课流水）。`
 （无残留时打印「未发现测试课程/测试选课批次残留」）。因此跑完测试**重启一次服务即可**恢复干净界面：
 
 ```powershell
 .\scripts\start.ps1              # 重启即自动清理测试残留（不需要 -ResetDb）
 .\scripts\start.ps1 -ResetDb     # 需要彻底重建演示数据时才用：4 学院 / 8 专业 / 21 班级 / 205 账号 / 155 教学班 / 1354 选课 / 1354 成绩 + 5 名重修学生 + 64 门可预测正课
 ```
+
+> 本轮就是按 `-ResetDb`（等价 `-Dcampus.reset-db=true`）把演示数据恢复到初始状态的：先打印上面那条清理日志，再 `[DemoInitializer] 收到显式重建开关，删除全部业务表并重新灌入数据。`，然后重灌并自检。完整五条日志与复核结果见上文「第七轮（R7）说明 → 演示数据恢复」。
 
 重建或清理后可通过 data-service 启动日志确认（`[DemoInitializer] 数据已写入：…`、`成绩单自检通过：…`、`学业预警覆盖自检通过：64 门有选课的正课全部可预测。`）。<br>
 原始交付记录的完整回归流程为：
@@ -646,7 +705,7 @@ node scripts/scale-test.mjs
 npm --prefix frontend run test:e2e
 ```
 
-> 需要说明的是：当前源码树的 `scripts/` 目录只包含 `browser-check.mjs`、`capture-selection.mjs`、`feature-test.mjs`、`generate-docs.mjs`、`SourceInventory.java`、`setup.mjs`、`start.sh` 与 `start.ps1`。上面第二段里的 `api-test.mjs`、`workflow-test.mjs`、`tamper-test.mjs`、`scale-test.mjs` 在本次交付的源码树中**不存在**，`docs/evidence/` 目录也不存在；`npm --prefix frontend run test:e2e` 所需的 Playwright 用例亦未随源码提供（本轮的浏览器验证改由 `scripts/browser-check.mjs` 承担，截图在 `test-results/browser/`）。因此本轮的验证证据只以 `mvn -o clean package` 的 surefire 报告与 `junit-summary.json`、`feature-test.mjs`、`browser-check.mjs` 的输出为准；第二段描述的是历史回归流程，不是本次实际执行的命令清单。
+> 需要说明的是：当前源码树的 `scripts/` 目录包含 `browser-check.mjs`、`capture-selection.mjs`、`feature-test.mjs`、`generate-docs.mjs`、`generate-ocr-fixtures.mjs`（第七轮）、`ocr-voice-check.mjs`（第七轮）、`ocr-voice-unit.mjs`（第七轮）、`SourceInventory.java`、`setup.mjs`、`start.sh` 与 `start.ps1`。上面第二段里的 `api-test.mjs`、`workflow-test.mjs`、`tamper-test.mjs`、`scale-test.mjs` 在本次交付的源码树中**不存在**，`docs/evidence/` 目录也不存在；`npm --prefix frontend run test:e2e` 所需的 Playwright 用例亦未随源码提供（本轮的浏览器验证改由 `scripts/browser-check.mjs` 与 `scripts/ocr-voice-check.mjs` 承担，截图在 `test-results/browser/`）。因此本轮的验证证据只以 `mvn -o clean package` 的 surefire 报告与 `junit-summary.json`、`feature-test.mjs`、`browser-check.mjs`、`ocr-voice-unit.mjs`、`ocr-voice-check.mjs` 的输出为准；第二段描述的是历史回归流程，不是本次实际执行的命令清单。
 >
 > Windows 下启动服务请使用 `scripts/start.ps1`：PowerShell 会把 `-Dcampus.reset-db=true` 这类参数拆坏，脚本用参数数组直接调用 `java`；需要整库重建时先设置 `CAMPUS_RESET_DB=true` 或使用该脚本的重建开关。
 

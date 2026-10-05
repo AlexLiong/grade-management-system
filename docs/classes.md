@@ -1540,3 +1540,105 @@ Webservice 远程调用客户端。HTTPS 使用可信证书校验，连接/请�
 ## 前端与工具职责
 
 `App.vue` 维护角色可见视图、课程状态、成绩表草稿、模态框及交互，所有服务器结果通过 Vue 文本绑定渲染。`api.js` 是统一同源请求客户端，读取 CSRF Cookie 并映射失败。`server.mjs` 维护独立 EVM、串行锚定请求和 LSTM 模型。`setup.mjs` 生成证书/随机配置，`start.sh` 一键启动与停止全部服务，OCR 离线资源随源码置于 `frontend/public/ocr/`。测试脚本不属于业务运行入口。
+
+### frontend/src/ocr.js（成绩单图片识别，浏览器本地）
+
+源码：[frontend/src/ocr.js](../frontend/src/ocr.js)。纯 ES 模块，只依赖浏览器 `document`/`Image`/`Canvas` 与随源码提供的 tesseract.js；**不引用 `api.js`，不产生任何后端请求**。导出函数与常量的职责、参数与返回值：
+
+|导出|职责|参数 / 返回值要点|
+|---|---|---|
+|`VARIANTS`|预处理候选的**常量表**（11 项），保留供文档与回归对照；当前 `buildVariants` **不再逐个消费**它|每项 `{id, label, binarize: "otsu"\|"adaptive", rotate: 0\|±1\|±2, scale: 1\|2}`；`label` 用于界面与排障展示。实际候选由 `buildVariants` 按轮生成：`VARIANTS[0]`（`gray`）、`VARIANTS[1]`（`otsu`）、就地新建的 `adaptive` 与 `gray-up2`，以及条件追加的 `gray-raw`|
+|`loadCanvas(source, maxEdge = 2600)`|把图片/画布等比缩到最长边 ≤ `maxEdge` 并画到新 Canvas，**随后调用 `invertIfDark` 自动反色**|入参 `HTMLImageElement\|HTMLCanvasElement`；返回 `HTMLCanvasElement`（已按需反色）|
+|`invertIfDark(canvas)`|深色背景自动反色（暗色主题截图的修复，见 [ocr-voice-design.md](ocr-voice-design.md) 4.1.1）|判据：逐像素 `299/587/114` 加权平均灰度 **< 110** 且灰度 **< 128** 的像素占比 **> 55%**，两个条件同时满足才把 R/G/B 置 `255 - v`；返回 `boolean`（是否反色）。由 `loadCanvas` 调用，因此只有真实图片文件会经过它——直接传 Canvas 时 `recognizeSheet`/`recognizeBest` 不再二次处理|
+|`estimateSkew(canvas, options)`|投影法估计倾斜角（粗估计 `coarseSkew`）|`options.candidates` 默认 `[-4,-3,-2,-1.5,-1,-0.5,0,0.5,1,1.5,2,3,4]`；返回角度（度），正值表示图顺时针倾斜，校正时应反向旋转。实测会明显偏小（最新一轮 2° 图估到 `0.41`、4° 图估到 `0.88`，见 [ocr-voice-design.md](ocr-voice-design.md) 4.2）|
+|`segmentBands(binary, width, height, options)`|水平投影切出行带（**自适应阈值选优**）|`options.minHeight`（默认 12）、`options.maxRows`（默认 200）、`options.ratios`（默认 `[0.06, 0.03, 0.12, 0.015]`）；阈值 `max(1, min(maxInk × ratio, p90 × ratio))`，按「行数落在 `[expectedLines/3, expectedLines×2]` 内最好、越接近 `expectedLines` 越优、其次行数多者优先」打分；`expectedLines = round(强墨行数/3)`，碎带过滤 `minBandInk = max(8, 总墨量 × 0.004)`；返回 `{top, bottom, ink}[]`（已合并/过滤/上下外扩 4px）|
+|`recognizeSheet(source, onProgress, options)`|低层入口：返回**全部**候选结果|`options` 可含 `tesseract`/`maxVariants`（默认 `VARIANTS.length`，即 11）/`goodEnough`（默认 55）/`skew`/`offsets`（默认 `[0]`）；返回 `{variants, width, height, skew}`，每个变体为 `{id, label, angle, rows, quality}`|
+|`recognizeBest(source, onProgress, options)`|高层入口：**粗估计 + 基线自校正 + 尺度回退 + offset 微调**，返回最优结果|`options` 可含 `tesseract`/`goodEnough`（默认 1）/`roster`/`components`/`allowDigitCorrection`/`maxVariants`（默认 4）/`variantQuality`（默认 55）/`skew`/**`scaleSteps`（默认 `[2, 3, 1.5]`，小字号截图的放大回退，见 [ocr-voice-design.md](ocr-voice-design.md) 4.1.2）**；返回 `{best, variants, skew, coarseSkew, corrected, passes, width, height}`，`best` 额外带 `usable`/`meanConfidence`/`score`。**`maxPasses` 与 `rotationSets` 都不存在/不被读取**：前者早已从签名移除，后者只残留在本函数上方那段过时 JSDoc 里（微调序列写死为 `+1/-1/+2/-2`）|
+|`scoreVariant(variant, components, roster, options)`|候选打分|返回 `{usable, rows, filled, mean, columns}`；`usable` 为主排序键（命中名册且有分数的行数），`filled` 为已填格子数，`mean` 为预览行平均置信度（1 位小数）。`options.allowDigitCorrection` 会透传给 `buildPreview` → `mapColumns`|
+|`estimateTiltFromRows(rows)`|从识别结果量**残余倾斜角**（自校正用）|**baseline 优先**：取 `line.baseline` 的斜率，要求 `\|dx\| ≥ 60px`、`\|angle\| ≤ 12°`，≥ 2 条样本时取均值（2 位小数）；否则退化为所有 text line 外接框中心的**最小二乘拟合**（样本 < 6 或 `variance < 1` 返回 `null`）；返回 `number\|null`|
+|`rowTokens(words)`|把一行的词按 x 排序并 token 化|支持 `{bbox:{x0,x1,y0,y1}}` 与扁平两种词结构；粘连 token 按等分估算 x 区间；返回 `{text, number, numeric, confidence, x0, x1, y0, y1}[]`|
+|`fixConfusion(text)`|按混淆表归一字符|`O/o/Q/D→0`、`I/l/\|/!/i→1`、`Z/z→2`、`B→8`、`S/s→5`、`G/b→6`、`T→7`、`A→4`、`g/q→9`；返回仅含 `[0-9A-Za-z]` 的串|
+|`editDistance(a, b, limit = 3)`|编辑距离（**完整计算后截断**，无行最小值剪枝）|`\|len(a) − len(b)\| > limit` 时直接返回 `limit + 1`；否则跑完整 DP，最后 `distance > limit ? limit + 1 : distance`。**不要**加回"某行最小值超限即提前返回"的剪枝：首字符不同但整体只差 1 的对照会被误判为超限|
+|`correctId(raw, candidates, options)`|学号纠错（**安全优先**）：① 归一化精确匹配 → ② 编辑距离 ≤ `maxDistance`（默认 1），距离相同优先 `confusionHits` 更多者，并列标 `ambiguous`|`options.maxDistance`（默认 1）、`options.allowDigitCorrection`（默认关）；返回 `{username, distance, corrected, fixed, confusionHits?, ambiguous?, alternatives?, unverified?, candidate?}` 或 `null`（名册外）。**安全规则**：最优候选差异 `confusionHits === 0` 时默认返回 `{username: null, unverified: true, candidate}`（不认人，交人工核对）；仅在 `allowDigitCorrection: true` 且差异**仅一位数字**时才自动认人|
+|`idCandidates(tokens, idLength = 8)`|挑学号候选|长度 `[7,9]` 的 token、相邻两 token 拼接、以及长度 `[8,10]` 的纯数字 token；返回去重后的字符串数组|
+|`assignColumns(tokens, anchors)`|按列锚点分配数值 token|比较 token **右边缘**（内部 `rightEdge`）与锚点；常规容差 `max(36, 中位列距 × 0.35)`，单位数 token（内部 `singleDigit`）容差 `max(18, 中位列距 × 0.12)`；超差留空、缺值不前移；返回与锚点等长的 `token\|null[]`|
+|`inferAnchors(rows, columnCount)`|推导列锚点|入参可含 `words` 的行数组，或已切好的 token 数组；取数值 token 数最多的前 12 行，按位置取**右边缘**中位数，样本不足时用中位列距外推；返回 `number[]\|null`|
+|`structureRows(input)`|便捷入口：`detectColumns` + `mapColumns`|`input` 含 `rows`/`components`/`roster`，可选 `idLength`（默认 8）/`minConfidence`（默认 85）/`detected`；返回预览行数组|
+|`buildPreview(rows, components, roster, columnMap, options)`|端到端便捷入口（App 与测试脚本共用）|`options.allowDigitCorrection` 会透传给 `mapColumns`；返回 `{columns, tokens, rows, previewRows, summary}`|
+|`isRowUsable(row)`|判断一行能否填入|`row.matched && row.cells.some(cell => cell.value !== null)`|
+|`detectColumns(rows)`|抽出「检测到的分值列」|先剔除无分数形态 token 的行；返回 `{columns, tokens, rows}`|
+|`mapColumns(input)`|把检测列映射成成绩项，生成预览行|`input` 含 `rows`/`tokens`/`components`/`roster`，可选 `columnMap`/`idLength`（默认 8）/`minConfidence`（默认 85）/`allowDigitCorrection`；逐行产出的 `issues` 含四种学号文案（未匹配 / 无法确认 / 多候选歧义 / 已纠正）；返回 `RecognizedRow[]`（字段见 [ocr-voice-design.md](ocr-voice-design.md) 第 3.1 与 3.3 节）|
+|`defaultColumnMap(columnCount, componentCount)`|默认列映射|按顺序一一对应，超出列数的成绩项映射为 `null`（不导入）|
+|`summarize(structure, components)`|汇总统计|返回 `{rows, usable, skipped, cells, filled, suspicious, columns, coverage}`|
+|`__testRotate(canvas, degrees)`|仅供测试：暴露旋转实现|用于验证"转过去再转回来"的一致性|
+
+内部实现（不导出）的职责：
+
+- 图像与二值化：`toCanvas`（等比画到新 Canvas）、`grayToCanvas`、`toGray`（`299/587/114` 加权灰度）、`stretch`（2%~98% 分位直方图拉伸）、`otsu`（全局阈值）、`adaptiveThreshold`（积分图自适应均值阈值，`radius = max(8, min(w,h)/12)`、`offset = 10`）；
+- 几何：`rotateCanvas`（**逐像素双线性插值**、白底；`estimateSkew` 与 `buildVariants` 共用）、`cropBand`（按行带切图并补白）；
+- 行带：`sum`（区间墨量求和，供 `segmentBands` 使用）；
+- 识别与拍平：`flattenWords`（`blocks→paragraphs→lines→words` 拍平为 `{text, confidence, x0, x1, y0, y1}`，`blocks` 为空时退化为整段文本）、`flattenLines`（拍平为 `{x, y, baseline}`，text line 级别，供 `estimateTiltFromRows` 使用）、`lineConfidence`（按词宽度加权平均置信度）、`variantQuality`（`平均行置信度 × (0.6 + 0.4 × min(1, 行数/8))`）；
+- 候选生成与识别：`buildVariants(canvas, skew, offsets, options)`（**先按 `options.scale`（默认 1）放大**，再在 `|skew| > 0.25` 时按 `-skew` 回转，然后按轮产出 `gray`/`otsu`/`adaptive`（`binarize: "adaptive"`，真自适应均值阈值）/`gray-up2`（管线内再放大 2 倍），并在 `includeRaw !== false` 且确实做了校正时追加 `gray-raw` 原图；`options.rawFirst` 决定原图排在本轮最前还是最后）、`recognizeVariants`（创建 `eng` worker、逐候选识别、`quality >= 55` 提前结束、`finally` 终止 worker）、`recognizeRows`（单候选：灰度 → 拉伸 → 二值化 → 切带 → 逐行 PSM 7 → 汇总 `rows`/`lines`）、`rankPasses`（按 `usable → filled → mean` 排序候选，供 `recognizeBest` 取最优）；
+- token 与列：`normalize`/`tokenize`/`asNumber`/`asScore`（`SCORE_SHAPE` 限制整数位 ≤ 3）/`box`/`medianGap`/`rightEdge`（token 右边缘；`x1` 非有限时退化为 `x0 + 20`，被 `assignColumns`/`inferAnchors`/`fallbackAnchors` 共用）/`singleDigit`（是否只剩 1 位数字，决定用单位数容差）/`maxNumericColumns`/`fallbackAnchors`；
+- 学号：`compact`（只去分隔符）/`confusionHits`（统计差异中有几位能被 `CONFUSION` 解释，是"是否放行自动纠正"的判据）。
+
+### frontend/src/voice.js（成绩语音录入）
+
+源码：[frontend/src/voice.js](../frontend/src/voice.js)。同一模块里既有纯函数（可在 Node 里直接单测），也有浏览器 `SpeechRecognition` 的薄封装；同样**不引用 `api.js`**。
+
+|导出|职责|参数 / 返回值要点|
+|---|---|---|
+|`chineseToNumber(text)`|中文数字 → 数值（0–999）|`DIGITS` + `UNITS`（十/拾、百/佰）；`八十五→85`、`一百→100`、`十→10`；纯阿拉伯数字直接转；无法解析返回 `null`|
+|`toNumber(text)`|口语数字片段（含阿拉伯数字与小数）→ 数值|支持 `85`、`85.5`、`八十五点五`、`85点5`；无法解析返回 `null`|
+|`scanUtterance(utterance, components)`|字符级扫描成有序语义单元|先归一标点；按「成绩项别名（最长优先）→ 阿拉伯数字 → 中文数字（含「点」小数）」匹配，数字后紧跟的「分」一并吃掉；返回 `{type: "component"\|"number"\|"unknown", name?, value?, text}[]`。**不按空格切词**，因为语音结果常常没有空格|
+|`parseUtterance(utterance, components, options)`|解析一句口述|`options.defaults` 为该行已有值；具名项消费紧随的数字（越界记入 `rejected`），裸数字按列顺序补「本次未提到且当前为空」的项；返回 `{values, mentioned, unknown, rejected, unmatched, rest}`|
+|`toCellUpdates(parsed, components)`|整理成待确认单元格|只回传 `mentioned` 里的项；返回 `{key, label, value}[]`|
+|`speechSupport(scope = globalThis)`|能力探测|`Boolean(scope.SpeechRecognition \|\| scope.webkitSpeechRecognition)`|
+|`createVoiceSession(handlers, scope)`|创建一次语音识别会话|`handlers` 为 `{onResult(text, isFinal), onError(error), onEnd()}`；配置 `lang="zh-CN"`、`continuous=true`、`interimResults=true`、`maxAlternatives=1`；不支持时返回 `{supported: false, start(){}, stop(){}, abort(){}}`；`stop()`/`abort()` 后不再回调 `onEnd`|
+|`COMPONENT_ALIASES`|成绩项的中文口语别名表|`regular`/`attendance`/`homework`/`lab`/`midterm`/`finalExam`/`makeup` 各自一组别名（如 `lab: ["实验","上机","实验分"]`）|
+|`buildVoiceComponents(components)`|规格化成绩项|同时接受 `[["regular","平时"], ...]` 与 `[{key,label}, ...]`；返回 `{key, label, aliases}[]`|
+
+### frontend/src/components/RecognizePreview.vue（识别结果预览确认）
+
+源码：[frontend/src/components/RecognizePreview.vue](../frontend/src/components/RecognizePreview.vue)。只负责「展示 + 编辑 + 勾选 + 汇报」，不认识 tesseract 也不调用后端；编辑与跳过只改本地副本，父组件收到 `confirm` 后才写入录入表单。
+
+|props|类型|默认|说明|
+|---|---|---|---|
+|`open`|`Boolean`|`false`|为假时不渲染|
+|`source`|`String`|`"local-ocr"`|`"voice"` 时标题显示「语音录入确认」|
+|`rows`|`Array`|`[]`|`RecognizedRow[]`，被 `watch` 复制成本地可编辑副本并补 `enabled`|
+|`components`|`Array`|`[]`|`{key, label}[]`，即参与录入的成绩项（列顺序）|
+|`columns`|`Array`|`[]`|检测到的列下标，用于列映射下拉的「第 N 列」|
+|`columnMap`|`Array`|`[]`|第 i 个成绩项对应的检测列下标，`null` 表示不导入|
+|`summary`|`Object`|`{}`|`summarize` 的结果（当前仅作整体上下文，表头统计来自本地副本）|
+|`busy`|`Boolean`|`false`|忙碌时禁用「取消」「确认填入」|
+
+|emits|载荷|说明|
+|---|---|---|
+|`close`|—|点「取消」|
+|`confirm`|`{username, studentId, name, cells: [{key, label, value}]}[]`|只含**已勾选**且 `value !== null` 的格子|
+|`update:columnMap`|`(number\|null)[]`|列映射下拉变化时回传新数组|
+
+界面元素与 `data-testid`：`recognize-preview`、`usable-count`、`filled-count`、`suspicious-count`、`column-map`、`preview-row-<i>`、`preview-username`、`confirm-fill`。行置信度徽标按 `>= 80` 绿、`>= 60` 琥珀、否则红；`cell.needsCheck` 的输入框加 `.cell-check` 高亮。
+
+### frontend/src/components/VoicePanel.vue（语音录入面板）
+
+源码：[frontend/src/components/VoicePanel.vue](../frontend/src/components/VoicePanel.vue)。语音与文本两条通道共用 `voice.js` 的解析逻辑；组件只产出结构化分数，父组件收到 `apply` 后才写入表单。
+
+|props|类型|默认|说明|
+|---|---|---|---|
+|`open`|`Boolean`|`false`|为假时不渲染（关闭时停止识别并清空状态）|
+|`components`|`Array`|`[]`|成绩项；经 `buildVoiceComponents` 规格化后用于解析|
+|`rows`|`Array`|`[]`|**可录入的学生行**（`App.vue` 传整份课程名册 `rows`）：驱动「录入对象」下拉框与上一行/下一行按钮；行的稳定标识由内部 `rowKey(row) = username \|\| student_id \|\| id` 给出|
+|`target`|`Object`|`null`|当前行（`{id, username, student_id, name}`），决定「当前行：…」与 `apply` 的目标|
+|`rowDefaults`|`Object`|`{}`|该行已有分数；传给 `parseUtterance` 的 `defaults`，决定哪些列算「空位」|
+|`active`|`Boolean`|`false`|麦克风监听状态（由父组件回传展示）|
+
+|emits|载荷|说明|
+|---|---|---|
+|`close`|—|关闭面板|
+|`apply`|`{target, cells: [{key, label, value}], utterance}`|「填入当前行」；只带解析出的（`mentioned`）项|
+|`toggle-mic`|`Boolean`|开始/停止识别，父组件据此更新 `voiceActive`|
+|`select-target`|`row`（`rows` 里的一整行）|**切换录入对象**：下拉框选中与上一行/下一行按钮两条可视化路径都只 `emit` 这一个事件，由 `App.vue` 的 `@select-target="voiceTargetRow = $event"` 写回目标行（成绩表行内麦克风按钮走 `App.vue` 的 `openVoice(row)`，不经本事件）|
+
+界面元素与 `data-testid`：`voice-panel`、`voice-target-select`（录入对象下拉，选项文案 `第 N 行 · 学号 姓名`）、`voice-prev` / `voice-next`（上一行 / 下一行，越界禁用、不循环）、`voice-target`（`当前行：<学号 姓名>（第 i / N 行）`）、`voice-mic`、`voice-unsupported`、`voice-reset`、`voice-text`、`voice-interim`、`voice-error`、`voice-result`、`voice-value`、`voice-rejected`、`voice-unknown`、`voice-unmatched`、`voice-applied`、`voice-apply`。**命令行提示文案与 `.voice-command-hint` 样式已随语音口令切行一并删除**（语音与文本框通道都只解析分数，切行只走下拉框/按钮/行内麦克风按钮）。**面板内重复的「语音录入」标题与关闭图标、以及原先那条黄色隐私提示框都已按用户要求删除**（弹窗标题已有「语音录入」，底部仍保留「关闭」按钮）；隐私事实见 [ocr-voice-design.md](ocr-voice-design.md) 2 节与 7.4 节。组件另挂一个只读排障快照 `window.__voiceState`（`transcript`/`components`/`parsed`/`updates`/`target`/`rowCount`），供浏览器测试核对界面里真正生效的文本与解析结果。

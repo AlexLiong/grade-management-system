@@ -6,3 +6,6 @@ test-results/
 .logs/
 *.log
 .DS_Store
+# 编辑器/工具写入源码时的中间目录：会干扰 Vite 的文件监听（Windows 上抛 EBUSY）
+**/.*.tmpdir/
+**/.ocr.js.*.tmpdir/
