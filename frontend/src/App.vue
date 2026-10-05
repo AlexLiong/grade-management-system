@@ -20,6 +20,7 @@ import {
   Plus,
   X,
   ScanText,
+  Mic,
   RefreshCw,
   KeyRound,
   CheckCircle2,
@@ -36,6 +37,16 @@ import {
 import { api } from "./api";
 import OrganizationView from "./components/OrganizationView.vue";
 import SelectionView from "./components/SelectionView.vue";
+import RecognizePreview from "./components/RecognizePreview.vue";
+import VoicePanel from "./components/VoicePanel.vue";
+import {
+  buildPreview,
+  defaultColumnMap,
+  loadCanvas,
+  mapColumns,
+  recognizeBest,
+  summarize,
+} from "./ocr";
 
 const user = ref(null),
   boot = ref(true),
@@ -70,8 +81,12 @@ const modal = ref(""),
   transitionAction = ref(""),
   dirty = ref(false),
   tablePage = ref(1),
-  ocrText = ref(""),
+  ocrStage = ref(""),
   ocrProgress = ref(0),
+  ocrError = ref(""),
+  ocrPreview = ref(null),
+  ocrSheets = ref([]),
+  voiceTargetRow = ref(null),
   oldPassword = ref(""),
   newPassword = ref(""),
   printing = ref(false);
@@ -795,64 +810,151 @@ async function submitEnrollment(remove) {
     enrollWorking.value = false;
   }
 }
+/** 识别阶段的中文说明：进度条下方的提示文案。 */
+const OCR_STAGES = {
+  skew: "正在估计倾斜角…",
+  variant: "正在尝试多套预处理…",
+  recognize: "正在逐行识别…",
+  done: "识别完成",
+};
+const ocrStageLabel = computed(() => OCR_STAGES[ocrStage.value] || "正在准备…");
+const ocrComponents = computed(() =>
+  activeComponents.value.map(([key, label]) => ({ key, label })),
+);
+const ocrColumns = computed(() => ocrSheets.value.map((_, index) => index));
+const ocrColumnMap = ref([]);
+const ocrRows = computed(() =>
+  ocrPreview.value
+    ? mapColumns({
+        rows: ocrPreview.value.rows,
+        tokens: ocrPreview.value.tokens,
+        components: ocrComponents.value,
+        roster: roster.value,
+        columnMap: ocrColumnMap.value,
+      })
+    : [],
+);
+const ocrSummary = computed(() => summarize({ rows: ocrRows.value }, ocrComponents.value));
+/**
+ * 允许"仅一位数字不同"的学号纠正。
+ *
+ * 真实教务系统的学号常是连号（20231530 / 20241530），OCR 也常把数字看错一位；
+ * 开启后这类差异会匹配到名册里最接近的那位学生，并在预览表标注"请核对"，
+ * 由教师最终决定要不要勾选。仍保留"编辑距离 ≤ 1"与"必须命中名册"两条底线。
+ */
+const ALLOW_DIGIT_CORRECTION = true;
+
+/**
+ * 图片识别入口：本地预处理 + 多策略识别 + 结构化。
+ *
+ * 图片只经 `createObjectURL` 在浏览器内读取，**不上传任何字节**；
+ * 识别结果先进入预览确认，教师点"确认填入"后才写进录入表单。
+ */
 async function recognize(event) {
-  const file = event.target.files[0];
+  const file = event.target.files?.[0];
   if (!file) return;
+  ocrError.value = "";
+  ocrPreview.value = null;
   await run(async () => {
     if (file.size > 10 * 1024 * 1024) throw new Error("图片不能超过 10 MB");
-    const { createWorker } = await import("tesseract.js");
-    let worker;
+    if (!activeComponents.value.length)
+      throw new Error("该课程还没有设置成绩系数，请先设置成绩项");
     const url = URL.createObjectURL(file);
     try {
-      worker = await createWorker("eng", 1, {
-        workerPath: "/ocr/worker.min.js",
-        corePath: "/ocr/core",
-        langPath: "/ocr/lang",
-        logger: (m) => {
-          if (m.status === "recognizing text")
-            ocrProgress.value = Math.round(m.progress * 100);
+      const image = await loadImageElement(url);
+      const canvas = loadCanvas(image);
+      const result = await recognizeBest(
+        canvas,
+        (info) => {
+          ocrStage.value = info.stage;
+          ocrProgress.value = Math.round((info.progress || 0) * 100);
         },
-      });
-      ocrText.value = (await worker.recognize(url)).data.text;
-    } finally {
-      if (worker) await worker.terminate();
+        {
+          roster: roster.value,
+          components: ocrComponents.value,
+          goodEnough: 1,
+          allowDigitCorrection: ALLOW_DIGIT_CORRECTION,
+        },
+      );
+      if (!result.best || !result.best.rows.length)
+        throw new Error("没有识别到任何文本行，请换一张更清晰的照片");
+      const preview = buildPreview(
+        result.best.rows,
+        ocrComponents.value,
+        roster.value,
+        defaultColumnMap(result.best.score?.columns ?? 0, ocrComponents.value.length),
+        { allowDigitCorrection: ALLOW_DIGIT_CORRECTION },
+      );
+      ocrSheets.value = preview.columns;
+      ocrColumnMap.value = defaultColumnMap(preview.columns.length, ocrComponents.value.length);
+      ocrPreview.value = {
+        rows: preview.rows,
+        tokens: preview.tokens,
+        variant: result.best.id,
+        skew: result.skew,
+      };
+      notice.value = `识别完成（${result.best.label}）：共 ${preview.rows.length} 行，可直接填入 ${preview.summary.usable} 行`;    } finally {
       URL.revokeObjectURL(url);
       event.target.value = "";
+      ocrStage.value = "";
+      ocrProgress.value = 0;
     }
   });
+  if (error.value) ocrError.value = error.value;
 }
-function applyOcr() {
+
+function loadImageElement(url) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("图片无法读取，请换一张 PNG/JPG 图片"));
+    image.src = url;
+  });
+}
+
+/** 预览确认后写入录入表单（不提交，仍需教师点"暂存"）。 */
+function applyRecognized(rows) {
   error.value = "";
-  try {
-    let count = 0;
-    const changes = [];
-    for (const line of ocrText.value.trim().split("\n")) {
-      if (!line.trim()) continue;
-      const cells = line.trim().split(/[,，\s]+/);
-      const row = roster.value.find((r) => r.username === cells[0]);
-      if (!row) throw new Error("无法匹配学号：" + cells[0]);
-      if (cells.length !== activeComponents.value.length + 1)
-        throw new Error("成绩列数不匹配：" + cells[0]);
-      const values = cells.slice(1).map(Number);
-      if (values.some((n) => !Number.isFinite(n) || n < 0 || n > 100))
-        throw new Error("识别分数无效：" + cells[0]);
-      changes.push([row, values]);
-    }
-    for (const [row, values] of changes) {
-      values.forEach((v, i) =>
-        score(row, activeComponents.value[i][0], {
-          target: { value: String(v) },
-        }),
-      );
-      count++;
-    }
-    modal.value = "";
-    notice.value = `已填入 ${count} 人成绩，待暂存`;
-    ocrText.value = "";
-  } catch (e) {
-    error.value = e.message;
+  let filled = 0;
+  for (const item of rows) {
+    const row = roster.value.find((r) => r.username === item.username);
+    if (!row) continue;
+    for (const cell of item.cells)
+      score(row, cell.key, { target: { value: String(cell.value) } });
+    filled++;
   }
+  modal.value = "";
+  ocrPreview.value = null;
+  notice.value = `已填入 ${filled} 人成绩，待暂存`;
 }
+
+/** 语音结果写入当前行。 */
+function applyVoice({ target, cells }) {
+  if (!target) return;
+  let row = roster.value.find((r) => r.id === target.id);
+  if (!row) row = roster.value.find((r) => r.username === target.username);
+  if (!row) {
+    error.value = "当前行已不在名单中，请重新选择课程";
+    return;
+  }
+  for (const cell of cells) score(row, cell.key, { target: { value: String(cell.value) } });
+  notice.value = `已填入 ${row.username} 的 ${cells.length} 项成绩，待暂存`;
+}
+
+/** 打开语音面板前先记录当前行：优先用户点过的行，否则从第一行开始。 */
+function openVoice(row) {
+  const target = row || voiceTargetRow.value || rows.value[0] || null;
+  voiceTargetRow.value = target;
+  modal.value = "voice";
+}
+const voiceDefaults = computed(() => {
+  const grade = voiceTargetRow.value?.grade;
+  if (!grade) return {};
+  const scores = grade.scores ?? {};
+  const defaults = {};
+  for (const [key] of activeComponents.value) defaults[key] = scores[key] ?? null;
+  return defaults;
+});
 async function review() {
   await run(async () => {
     await api("/audit/review", {
@@ -884,8 +986,14 @@ watch([term, search], async () => {
     await run(loadCourse);
   }
 });
+/** 模态框切换时的清理：识别预览与语音状态都不跨次残留。 */
 watch(modal, (value, previous) => {
-  if (previous === "ocr" && !value) ocrText.value = "";
+  if (previous === "ocr" && !value) {
+    ocrPreview.value = null;
+    ocrSheets.value = [];
+    ocrColumnMap.value = [];
+    ocrError.value = "";
+  }
 });
 onMounted(async () => {
   try {
@@ -1149,13 +1257,23 @@ onMounted(async () => {
                   ><button
                     v-if="isTeacher && can('ENTRY') && !submitted"
                     class="secondary"
+                    data-testid="ocr-open"
                     :disabled="busy"
                     @click="
                       modal = 'ocr';
-                      ocrText = '';
+                      ocrPreview = null;
+                      ocrError = '';
                     "
                   >
                     <ScanText :size="16" />识别成绩单</button
+                  ><button
+                    v-if="isTeacher && can('ENTRY') && !submitted"
+                    class="secondary"
+                    data-testid="voice-open"
+                    :disabled="busy"
+                    @click="openVoice(null)"
+                  >
+                    <Mic :size="16" />语音录入</button
                   ><button
                     v-if="isTeacher && can('ENTRY') && !submitted"
                     class="secondary"
@@ -1266,19 +1384,31 @@ onMounted(async () => {
                         }}
                       </td>
                       <td>
-                        <span
-                          class="status-dot"
-                          :class="
-                            row.grade?.state === 'SUBMITTED' ? 'green' : 'amber'
-                          "
-                        ></span
-                        >{{
-                          row.grade?.state === "SUBMITTED"
-                            ? "已提交"
-                            : row.grade
-                              ? "暂存"
-                              : "未录入"
-                        }}
+                        <div class="status-cell">
+                          <span
+                            class="status-dot"
+                            :class="
+                              row.grade?.state === 'SUBMITTED' ? 'green' : 'amber'
+                            "
+                          ></span
+                          >{{
+                            row.grade?.state === "SUBMITTED"
+                              ? "已提交"
+                              : row.grade
+                                ? "暂存"
+                                : "未录入"
+                          }}
+                          <button
+                            v-if="isTeacher && can('ENTRY') && !submitted"
+                            class="icon-button voice-row"
+                            :aria-label="`为 ${row.username} 语音录入`"
+                            :data-testid="'voice-row-' + row.username"
+                            :disabled="busy"
+                            @click="openVoice(row)"
+                          >
+                            <Mic :size="14" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                     <tr v-if="!rows.length">
@@ -1943,7 +2073,7 @@ onMounted(async () => {
     >
       <section
         class="modal"
-        :class="{ wide: modal === 'enroll' }"
+        :class="{ wide: modal === 'enroll' || modal === 'ocr' }"
         role="dialog"
         aria-modal="true"
         :aria-label="
@@ -1954,6 +2084,7 @@ onMounted(async () => {
             course: '课程信息',
             enroll: '按课程选课',
             ocr: '识别成绩单',
+            voice: '语音录入',
             review: '审计复核',
           }[modal]
         "
@@ -1968,6 +2099,7 @@ onMounted(async () => {
                 course: "课程信息",
                 enroll: "按课程选课",
                 ocr: "识别成绩单",
+                voice: "语音录入",
                 review: "审计复核",
               }[modal]
             }}
@@ -2331,34 +2463,47 @@ onMounted(async () => {
             >成绩单图片<input
               type="file"
               accept="image/png,image/jpeg,image/webp"
+              data-testid="ocr-file"
               :disabled="busy"
               @change="recognize" /></label
-          ><progress v-if="busy" :value="ocrProgress" max="100"></progress
-          ><label
-            >识别结果<textarea
-              v-model="ocrText"
-              rows="8"
-              :placeholder="
-                '学号 ' + activeComponents.map((c) => c[1]).join(' ')
-              "
-              spellcheck="false"
-            ></textarea>
-          </label>
-          <div class="import-columns">
-            <span>学号</span
-            ><span v-for="[key, name] in activeComponents" :key="key">{{
-              name
-            }}</span>
+          ><progress v-if="busy || ocrStage" :value="ocrProgress" max="100"></progress>
+          <p v-if="busy || ocrStage" class="ocr-stage" data-testid="ocr-stage">{{ ocrStageLabel }}</p>
+          <p v-if="ocrError" class="error" data-testid="ocr-error">{{ ocrError }}</p>
+          <RecognizePreview
+            :open="!!ocrPreview"
+            source="local-ocr"
+            :rows="ocrRows"
+            :components="ocrComponents"
+            :columns="ocrColumns"
+            :column-map="ocrColumnMap"
+            :summary="ocrSummary"
+            :busy="busy"
+            @update:column-map="ocrColumnMap = $event"
+            @close="modal = ''"
+            @confirm="applyRecognized"
+          />
+          <div v-if="!ocrPreview && !busy" class="ocr-tips">
+            <p>
+              支持的版式：<strong>一人一行</strong>的成绩单 —— 学号在最左列，右边依次是本课程的成绩列（数字）。
+              打印件、Excel/网页截图、手机拍的纸面照片都可以；深色背景截图会自动反色。
+            </p>
+            <p>
+              暂不支持：学生放在列、成绩放成行的转置表；合并单元格跨多行的表头；手写分数（会尽力识别，但需要人工核对）。
+            </p>
+            <p>识别在浏览器本地完成，图片不会上传服务器；结果需你确认后才写入表单。</p>
           </div>
-          <div class="modal-actions">
-            <button
-              class="primary"
-              :disabled="busy || !ocrText.trim()"
-              @click="applyOcr"
-            >
-              确认填入
-            </button>
-          </div>
+        </div>
+        <div v-if="modal === 'voice'">
+          <VoicePanel
+            :open="true"
+            :components="ocrComponents"
+            :rows="rows"
+            :target="voiceTargetRow"
+            :row-defaults="voiceDefaults"
+            @select-target="voiceTargetRow = $event"
+            @apply="applyVoice"
+            @close="modal = ''"
+          />
         </div>
         <form v-if="modal === 'review'" @submit.prevent="review">
           <label

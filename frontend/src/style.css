@@ -1586,3 +1586,37 @@ progress {
   }
 }
 
+/* ---------------------------------------------------- 成绩录入辅助（OCR / 语音） */
+
+.status-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.status-cell .voice-row {
+  padding: 2px;
+  color: #4a5568;
+}
+.status-cell .voice-row:hover {
+  color: #1f6feb;
+}
+.ocr-stage {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #5b6472;
+}
+.ocr-tips {
+  margin-top: 12px;
+  font-size: 12px;
+  color: #5b6472;
+  line-height: 1.7;
+}
+.ocr-tips p {
+  margin: 0;
+}
+.modal.wide {
+  max-width: 980px;
+}
+
+
