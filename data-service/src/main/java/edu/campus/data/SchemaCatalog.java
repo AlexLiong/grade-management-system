@@ -2,6 +2,8 @@ package edu.campus.data;
 
 import edu.campus.common.*;
 import jakarta.annotation.PostConstruct;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.*;
 import java.util.*;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -95,18 +97,21 @@ public class SchemaCatalog {
     } catch (Exception e) {
       throw new IllegalStateException(e);
     }
-    // 只有「库里已有业务数据」且结构版本不匹配时才算真正的重建（会丢弃数据）。
-    // 空库上 version 也是 -1（连 schema_meta 都没有），那只是首次建表，不应报告为重建，
+    // 只有「库里已有业务数据」且结构标记不匹配时才算真正的重建（会丢弃数据）。
+    // 空库上标记也是 null（连 schema_meta 都没有），那只是首次建表，不应报告为重建，
     // 否则 wasRebuilt() 会把「新建库」误报成「丢弃了数据」。
-    int version = structureVersion();
-    if (version != SCHEMA_VERSION) {
+    // 标记比较是整串比对（结构版本 + 密钥指纹），既能识别结构升级，也能识别密钥轮换。
+    String stored = storedMarker();
+    if (!structureMarker().equals(stored)) {
       boolean hadData = hasBusinessRows();
       System.out.println(
           "[SchemaCatalog] 结构版本 "
-              + version
+              + describeMarker(stored)
               + " 与目标 "
               + SCHEMA_VERSION
-              + " 不一致：删除全部业务表后重建（原有数据："
+              + "（密钥指纹 "
+              + ConfigGuard.dataFingerprint()
+              + "）不一致：删除全部业务表后重建（原有数据："
               + (hadData ? "有，将被清空" : "无，属首次建表")
               + "）。");
       dropAll();
@@ -170,39 +175,95 @@ public class SchemaCatalog {
   }
 
   /**
-   * 读取已落库的结构版本；表或版本行不存在时返回 -1，表示需要重建。
+   * 结构版本标记的落库形式：{@code 结构版本:密钥指纹}。
+   *
+   * <p>把密钥指纹一起写进 {@code schema_meta} 是「动态密钥」的配套设计：成绩 payload、
+   * 审计发件箱、账本区块都是用当时那组密钥加密的，密钥一换这些密文就解不开了。
+   * 启动时比对指纹，不一致就整库重建，避免运行到读某一行时才报完整性失败。
+   */
+  private String structureMarker() {
+    return SCHEMA_VERSION + ":" + ConfigGuard.dataFingerprint();
+  }
+
+  /**
+   * 读取已落库的结构标记；表或版本行不存在时返回 null，表示需要重建。
    *
    * <p>列名用 {@code version_value} 而不是 {@code value}：{@code VALUE} 是 H2 等数据库的
    * 保留字，用它做列名会让建表语句直接报语法错误。
    */
-  private int structureVersion() {
+  private String storedMarker() {
     try {
-      String stored =
-          jdbc.queryForObject(
-              "SELECT version_value FROM " + META_TABLE + " WHERE name='version'", String.class);
-      return stored == null ? -1 : Integer.parseInt(stored);
+      return jdbc.queryForObject(
+          "SELECT version_value FROM " + META_TABLE + " WHERE name='version'", String.class);
     } catch (Exception e) {
-      return -1;
+      return null;
     }
   }
 
-  /** 建表并写入当前结构版本；表已存在时只更新版本号。 */
+  /** 建表并写入当前结构版本与密钥指纹；表已存在时只更新。 */
   private void writeStructureVersion() {
     try {
       jdbc.execute(
           "CREATE TABLE IF NOT EXISTS "
               + META_TABLE
               + " (name VARCHAR(50) PRIMARY KEY, version_value VARCHAR(200))");
-      Integer updated =
-          jdbc.update(
-              "UPDATE " + META_TABLE + " SET version_value=? WHERE name='version'",
-              "" + SCHEMA_VERSION);
-      if (updated == null || updated == 0)
-        jdbc.update(
-            "INSERT INTO " + META_TABLE + " (name,version_value) VALUES ('version',?)",
-            "" + SCHEMA_VERSION);
+      localStorageMarker(structureMarker());
     } catch (Exception e) {
       System.err.println("[SchemaCatalog] 写入结构版本失败：" + e.getMessage());
+    }
+  }
+
+  private void localStorageMarker(String marker) {
+    Integer updated =
+        jdbc.update(
+            "UPDATE " + META_TABLE + " SET version_value=? WHERE name='version'", marker);
+    if (updated == null || updated == 0)
+      jdbc.update(
+          "INSERT INTO " + META_TABLE + " (name,version_value) VALUES ('version',?)", marker);
+  }
+
+  /** 把落库标记转成日志可读形式：结构版本 + 密钥指纹（指纹为 null 表示旧库或空库）。 */
+  private String describeMarker(String stored) {
+    if (stored == null) return "未知（空库或旧库）";
+    int colon = stored.indexOf(':');
+    return colon < 0 ? stored + "（旧格式，无密钥指纹）" : stored;
+  }
+
+  /**
+   * 启动前检查：库文件是否是「未加密」的老库。
+   *
+   * <p>开启 {@code CIPHER=AES} 后，H2 打不开此前生成的明文库文件，会在连接阶段抛
+   * 「File corrupted while reading record」这类让人摸不着头脑的异常（实测 H2 2.2.224）。
+   * 这里提前按文件头判断并给出明确处置：删除明文库重建——教学演示数据是合成的、可重建。
+   *
+   * <p>判据来自实测：加密库文件头是 {@code H2encrypt}，明文库文件头是
+   * {@code H:2,block:...,blockSize:...}。因此「以 H:2 开头且不是 H2encrypt」即为明文库。
+   *
+   * @return 是否因为切换到加密库而清掉了明文库文件
+   */
+  static boolean dropLegacyPlaintextDatabase(String jdbcUrl) {
+    if (jdbcUrl == null
+        || !jdbcUrl.startsWith("jdbc:h2:file:")
+        || !jdbcUrl.toUpperCase(Locale.ROOT).contains("CIPHER=AES")) return false;
+    String path = jdbcUrl.substring("jdbc:h2:file:".length());
+    int semicolon = path.indexOf(';');
+    if (semicolon >= 0) path = path.substring(0, semicolon);
+    Path file = Path.of(path).toAbsolutePath();
+    if (!path.endsWith(".mv.db")) file = Path.of(file + ".mv.db");
+    if (!Files.exists(file)) return false;
+    try {
+      byte[] all = Files.readAllBytes(file);
+      String head = new String(all, 0, Math.min(all.length, 64), java.nio.charset.StandardCharsets.ISO_8859_1);
+      if (!head.startsWith("H:2") || head.startsWith("H2encrypt")) return false;
+      Files.delete(file);
+      System.out.println(
+          "[SchemaCatalog] 检测到未加密的 H2 明文库，已删除并改为加密库重建："
+              + file
+              + "（演示数据由初始化器重新灌入）");
+      return true;
+    } catch (Exception e) {
+      System.err.println("[SchemaCatalog] 检查明文库文件失败：" + e.getMessage());
+      return false;
     }
   }
 

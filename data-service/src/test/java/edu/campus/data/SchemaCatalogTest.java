@@ -150,11 +150,42 @@ class SchemaCatalogTest {
         0,
         jdbcTemplate.queryForObject("SELECT COUNT(*) FROM users", Integer.class).intValue(),
         "重建后旧数据应被清空");
-    assertEquals(
-        SchemaCatalog.SCHEMA_VERSION,
+    // 结构标记现在是「结构版本:密钥指纹」——密钥换了也要触发重建，避免用旧密钥加密的
+    // 成绩/审计密文解不开（见 SchemaCatalog.structureMarker()）。
+    String marker =
         jdbcTemplate.queryForObject(
-            "SELECT version_value FROM schema_meta WHERE name='version'", Integer.class)
-            .intValue(),
-        "重建后应写入当前结构版本");
+            "SELECT version_value FROM schema_meta WHERE name='version'", String.class);
+    assertNotNull(marker);
+    assertTrue(
+        marker.startsWith(SchemaCatalog.SCHEMA_VERSION + ":"),
+        "重建后应写入当前结构版本 + 密钥指纹，实际=" + marker);
+    assertEquals(
+        SchemaCatalog.SCHEMA_VERSION + ":" + edu.campus.common.ConfigGuard.dataFingerprint(), marker);
+  }
+
+  /** 结构版本相同但密钥指纹不同（轮换密钥）时，也必须整库重建。 */
+  @Test
+  void rebuildsWhenSecretsFingerprintChanges() {
+    var ds =
+        new DriverManagerDataSource(
+            "jdbc:h2:mem:" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1", "sa", "");
+    var jdbcTemplate = new JdbcTemplate(ds);
+    new SchemaCatalog(jdbcTemplate).init();
+    jdbcTemplate.update(
+        "INSERT INTO users (id,username,name,role,permissions,department,enabled,version) VALUES (?,?,?,?,?,?,?,?)",
+        "u1", "alice", "Alice", "STUDENT", "QUERY", "信息工程学院", 1, 0);
+    // 结构版本对得上、指纹对不上：模拟「换了密钥但库还是旧的」
+    jdbcTemplate.update(
+        "UPDATE schema_meta SET version_value=? WHERE name='version'",
+        SchemaCatalog.SCHEMA_VERSION + ":0000000000000000");
+
+    var catalog = new SchemaCatalog(jdbcTemplate);
+    catalog.init();
+
+    assertTrue(catalog.wasRebuilt(), "密钥指纹变化时应整库重建");
+    assertEquals(
+        0,
+        jdbcTemplate.queryForObject("SELECT COUNT(*) FROM users", Integer.class).intValue(),
+        "旧密钥加密的数据在轮换后无法解密，必须清空重建");
   }
 }

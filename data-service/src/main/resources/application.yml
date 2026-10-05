@@ -12,15 +12,19 @@ server:
 
 spring:
   datasource:
-    url: ${DB_URL:jdbc:h2:file:./.runtime/database/campus;AUTO_SERVER=TRUE}
-    username: ${DB_USER:sa}
-    password: ${DB_PASSWORD:}
+    # 整库加密：CIPHER=AES + 「文件口令 用户口令」两段式会话口令。
+    # 口令不写在这里，而是由 common/DbCredentials.java 从 .runtime/secrets.json
+    # （或环境变量 / -D 启动参数）解析后注入，见 ConfigEnvironmentPostProcessor。
+    # 换库时用 DB_URL / DB_USER / DB_PASSWORD 覆盖即可。
+    url: jdbc:h2:file:./.runtime/database/campus;CIPHER=AES;AUTO_SERVER=TRUE
+    username: sa
+    password:
     hikari:
       maximum-pool-size: 8
 campus:
   GATEWAY_URL: ${GATEWAY_URL:https://localhost:8443}
-  AUDIT_KEY: ${AUDIT_KEY:KEY}
-  LEDGER_KEY: ${LEDGER_KEY:KEY}
-  AUDIT_DATA_KEY: ${AUDIT_DATA_KEY:KEY}
-  DATA_KEY: ${DATA_KEY:KEY}
-  BUSINESS_KEY: ${BUSINESS_KEY:KEY}
+  AUDIT_KEY: ${AUDIT_KEY:}
+  LEDGER_KEY: ${LEDGER_KEY:}
+  AUDIT_DATA_KEY: ${AUDIT_DATA_KEY:}
+  DATA_KEY: ${DATA_KEY:}
+  BUSINESS_KEY: ${BUSINESS_KEY:}
