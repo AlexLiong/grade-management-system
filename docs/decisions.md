@@ -251,9 +251,21 @@ PDF 接受 RMI、CORBA、Webservice 等。选择 HTTPS JSON 便于跨操作系�
 
 ### 数据库初始化用整库重建而非增量迁移
 
-`SchemaCatalog` 启动时比对 `schema_meta` 里的结构版本与 `SCHEMA_VERSION`：不一致就删除全部业务表后按目标结构重建，再由 `DemoInitializer` 重灌演示数据；版本一致时只补缺表、缺列。
+`SchemaCatalog` 启动时比对 `schema_meta` 里的标记与 `SCHEMA_VERSION`：不一致就删除全部业务表后按目标结构重建，再由 `DemoInitializer` 重灌演示数据；一致时只补缺表、缺列。**标记是 `结构版本:密钥指纹` 整串**（不是单纯数字）：把密钥指纹一起落库以后，「换了密钥」与「结构升级」走同一条重建路径——两者都会让旧密文失效，提前重建比运行到读某一行时才报完整性失败更好。
 
 选整库重建的直接原因是 H2 在 `CHECK` 表达式变更时会保留旧的命名约束，加列无法修复；同时演示库的全部内容都是可再生的合成数据，重建比维护一套迁移脚本更可靠，也能保证「结构版本」与「演示数据形状」永远一致。代价非常明确：重建会丢弃全部业务数据，并同步清空独立审计账本（旧快照指向已删除的成绩行，见 `resetLedger`）。因此结构版本只在确实无法补列兼容时提升，生产部署必须改用迁移管理工具而不是打开这个开关。
+
+### 整库加密选在文件层而不是再加密若干列
+
+数据服务默认开启 H2 的 `CIPHER=AES`，让**整个 `.mv.db` 文件**成为密文。另一种做法是继续只做字段级加密（现在的 `grades.payload`/`audits.payload` 就是 AES-GCM），但那样账号表、BCrypt 哈希、选课关系、课程代码在磁盘上仍是明文——库文件被拷走或备份卷泄露时这些内容直接可读，而「成绩隐私」的泄露面显然不止分数列。两者并不互斥：现在是文件层整库加密 + 字段层 AES-GCM 两层，前者防离线读取，后者把密文绑定到身份、状态与版本，能识别整行回放与版本回退。
+
+代价有三条，都已写进文档而不是藏起来：① H2 的 AES 实现是 AES-128；② 会话口令必须是「文件口令 + 空格 + 用户口令」两段式，一旦中间的空格被环境变量、启动参数或 shell 吞掉，H2 只报 `Wrong password format ... [90050-224]`，所以 `DataSourceConfig` 改为显式取值并让日志打印「来源 + 长度 + 空格数」；③ 开启加密后旧的明文库打不开（H2 会报 `File corrupted while reading record`），因此 `DatabaseBootstrap` 在 Spring 之前按文件头（加密库 `H2encrypt`、明文库 `H2:`）识别并清理。另外要讲清信任边界：整库加密保护静态文件，不保护运行中的进程——库文件与 `secrets.json` 同机可读时，本机管理员仍能解密。
+
+### 密钥与口令动态生成，而不是读写进配置文件
+
+课程要求原文第 17 页明确「禁止硬编码密钥 / 密码」，而此前的实现把 6 个 `*_KEY` 默认写成字面量 `KEY`、把 TLS 口令固定为 `campus-dev-tls-2024`——等于把凭据写进了版本库。现在的做法是：`scripts/setup.mjs` 用 `crypto.randomBytes(32)` 生成 9 项密钥写入 `.runtime/secrets.json`（0600、`.gitignore` 忽略），yml 里一律是空占位 `${VAR:}`，启动脚本把 9 项**同时**作为环境变量与 `-D` 启动参数注入，`ConfigGuard` 与 `ConfigEnvironmentPostProcessor` 保证在数据源建立之前就绪，`chain-worker` 也从环境变量或密钥文件读取、缺失即退出。
+
+选择「密钥文件 + 注入」而不是「每次启动随机生成」：后者会让四个独立进程与 Node 进程各拿到不同的值，签名互不通过，且重启一次就丢掉全部历史密文的可解密性。选择「生产档拒绝启动」而不是「打日志警告」：警告在运维脚本里会被忽略，而缺密钥时系统本来也跑不起来——把失败提前到启动最早期并打印缺失清单，比运行到第一次内部调用才报 401 更省事。这个方案的已知弱点也写进了安全文档：便利模式下四个进程共用一份密钥表，任一进程被攻陷即可读到全套密钥；生产应改为 KMS/Vault 或按进程只发需要的密钥，并接受「换密钥 = 整库重建」这一后果（`schema_meta` 的密钥指纹会失配）。
 
 ### 领域路由注册表代替单一 dispatch switch
 
@@ -275,6 +287,8 @@ PDF 接受 RMI、CORBA、Webservice 等。选择 HTTPS JSON 便于跨操作系�
 - 端到端脚本第一次运行 108/112：`CourseService.saveCourse` 的 `(code, term)` 唯一性校验使「不同教师开设同一门课」无法验收（4 条失败全部在此）。移除该校验、把重复修读判定移到选课环节后重跑 111/111。
 - 演示库重建后重新锚定失败（`Anchor conflict`）：新增 chain-worker `POST /reset`，由 `LedgerService.reset()` 在清空账本前先清空 EVM 锚点。
 - PowerShell 会拆坏 `-Dcampus.reset-db=true` 这类参数，Windows 一键启动改用 `scripts/start.ps1`，以参数数组直接调用 `java`。
+- 整库加密开启后 `start.ps1` 写进 `.logs/jvm.args` 的两段式 `-DDB_PASSWORD` 被 JVM 的 argfile 解析器按空白拆成两个参数，第二个被当成主类（`ClassNotFoundException`）。修法是给该行加引号（`'"-DDB_PASSWORD=' + $dbPassword + '"'`），本机实测启动日志里口令形态为「长度 129、空格数 1」。
+- 文档复查时发现一个容易写错的细节：长度校验**只在生产档生效**。`ConfigGuard.load()` 的判据是 `production && (PLACEHOLDERS.contains(value) || value.length() < MIN_LENGTH)`，因此生产档下「值 < 16 字符」会拒绝启动，而开发档若手工注入了一个短值（如 `GATEWAY_KEY=my-dev-secret`）会被直接采用——开发档的兜底只负责「缺失时生成」，不负责「太短时替换」。因此文档里给出的手工注入示例一律使用 64 位十六进制，而不是随手编一个短口令。
 - **（第二轮）48 名学生的 `college_id` 被写成专业编号**：`DemoInitializer` 用 `find(CLASSES, classId).parent()` 取学院，而 `Org.parent()` 返回的是上一级编号——班级的 parent 是专业，于是所有学生的 `college_id` 都是 `M01xxx` 这类专业编号。后果很隐蔽：列表页看不出异常，但选课范围校验（`inScope` 比较 `college_id`）永远不通过，学生选课一律 403「你不在此次选课范围内」。修复是学院一律走「专业 → 学院」反推（`major.parent()`），并新增 `DemoInitializer.verifyOrganizationIntegrity()` 在灌数结束时逐行校验三级归属与「管理员无组织」，不合法直接抛异常中止启动，让同类问题不可能再静默入库。
 - **（第二轮）登录后的身份行没有组织信息**：`App.vue` 的 `login()` 用 `POST /login` 返回的 user（只含 `id`/`username`/`name`/`role`/`permissions`），而 `collegeName`/`majorName`/`className` 只有 `GET /me` 才返回，因此「登录后立刻看身份行」与「刷新页面后看身份行」结果不同。修复是登录成功后立即补一次 `api("/me")` 再进入应用初始化，身份行在两种路径下一致；浏览器检查里专门加了「教师/学生身份含学院、专业、班级」与「管理员不含组织、不出现 null」的断言。
 - **（第二轮）`SchemaCatalog.wasRebuilt()` 语义错误**：空库首次建表时它同样返回 `true`，把「新建库」误报成「丢弃了已有数据」，初始化日志与 `DemoInitializer` 的判断都会因此产生误导。修复为只有「库里原有业务数据、且因结构版本不匹配被删除」时才返回 `true`，并新增 `hasBusinessRows()` 做判定；`SchemaCatalogTest` 增加了结构版本过期重建与补列迁移两条回归用例。

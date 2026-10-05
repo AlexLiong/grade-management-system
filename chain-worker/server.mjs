@@ -6,10 +6,35 @@ import ganache from "ganache";
 import * as tf from "@tensorflow/tfjs";
 
 const runtime = path.resolve(process.env.CAMPUS_RUNTIME || "../.runtime");
-const config = {
-    LEDGER_KEY:"KEY",
-    AUDIT_KEY:"KEY"
+
+/**
+ * 密钥来自注入的环境变量或 .runtime/secrets.json（由 scripts/setup.mjs 随机生成），
+ * 不再写死在源码里；缺失或仍是占位值时直接退出，避免"看起来在跑、其实密钥是默认值"。
+ */
+function loadSecrets() {
+    const names = ["LEDGER_KEY", "AUDIT_KEY"];
+    const values = {};
+    for (const name of names) if (process.env[name]) values[name] = process.env[name];
+    const file = path.join(runtime, "secrets.json");
+    if (fs.existsSync(file)) {
+        const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+        for (const name of names) if (!values[name] && parsed[name]) values[name] = parsed[name];
+    }
+    const placeholders = new Set(["KEY", "passwd", "changeme"]);
+    for (const name of names) {
+        const value = values[name];
+        if (!value || value.length < 16 || placeholders.has(value)) {
+            console.error(
+                `[chain-worker] 缺少可用密钥 ${name}：请先运行 node scripts/setup.mjs 生成 .runtime/secrets.json，` +
+                    "或用环境变量注入（生产环境不要用示例值）。",
+            );
+            process.exit(1);
+        }
+    }
+    return values;
 }
+
+const config = loadSecrets();
 const provider = ganache.provider({
     database: { dbPath: path.join(runtime, "ethereum") },
     wallet: {

@@ -683,6 +683,8 @@ erDiagram
 
 第二轮与第三轮对该 ER 图有两处修正：`classes` 去掉了 `counselor` 列（结构版本 3）；`colleges`/`majors`/`classes` 三张表的 `code` 列是**遗留列**——第二轮的「两位显示编号」在第三轮被取消，表结构里保留该列（避免再触发一次整库重建），但组织接口与 `OrganizationService` 都不再读写它，组织编号统一用主键 `id`（数据库唯一索引仍只在 `name` 上）。
 
+**存储层还有一层整库加密**（模型图不体现，因为它不是表结构）：H2 文件库以 `CIPHER=AES` 整体加密，库文件头为 `H2encrypt`，因此 ER 图里的**每一列**（包括 `sessions.id`、`login_limits.id` 这类 SHA-256 值与 BCrypt 密码哈希）在磁盘上都不以明文出现；`grades.payload` / `audits.payload` 则是在此之上再加一层字段级 AES-GCM（AAD 绑定 `id|course_id|student_id|state|version`）。`schema_meta.version_value` 存的是「**结构版本:密钥指纹**」而不是单纯版本号：指纹由 9 项密钥的摘要算出，任一密钥变化（轮换）都会让启动时的整串比对失败并触发整库重建——因为旧密文已经解不开。细节见 [配置说明 3.3.1/3.3.5](configuration.md#331-数据库整库加密h2-cipheraes) 与 [安全文档](security.md)。
+
 选课域三张表的引用语义：`course_selections.course_ids` 是逗号分隔的课程主键集合，`scope_college_ids`/`scope_major_ids`/`scope_class_ids` 是逗号分隔的组织编号集合，空集合表示「不限」；`enrollments` 用 `(course_id,student_id)` 唯一索引保证同一学生不会重复选同一教学班，`status` 只有 `ACTIVE`/`DROPPED`；`enrollment_records` 只增不改，`action` 取值见 `Models.ENROLLMENT_ACTIONS`。`classes` 同时保存 `major_id` 与 `college_id`，学院取自专业，避免出现「班级归属的学院与专业归属的学院不一致」的第二种真相。
 
 ## 故障响应活动图

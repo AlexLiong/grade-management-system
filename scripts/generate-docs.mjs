@@ -15,6 +15,16 @@ const descriptions = {
     "远程值传递契约容器。查询与操纵分开定义，字段顺序显式传递，不允许浏览器携带 SQL。",
   Settings:
     "运行配置读取器。环境变量优先，缺少配置时拒绝启动；初始化工具生成随机密钥和密码。server 配置 TLS 和回环地址，json 统一序列化。",
+  ConfigGuard:
+    "认证密钥与数据库口令的统一入口：从环境变量/启动参数/密钥文件读取，开发档缺失时随机生成 32 字节并写入 .runtime/secrets.json；生产档（CAMPUS_PROFILE=prod）缺密钥、仍是占位值或长度不足即拒绝启动。另计算 dataFingerprint 供结构表比对，并提供 H2 整库加密所需的两段式口令。",
+  DatabaseBootstrap:
+    "进程级引导，四个主类在 Spring 之前调用：先加载/注入密钥，再检查并清理『未加密的 H2 明文库』（开启 CIPHER=AES 后旧明文库无法打开），使启动顺序完全确定。",
+  ConfigEnvironmentPostProcessor:
+    "在配置绑定之前把密钥与数据源凭据注入 Environment（环境变量与 -D 优先，密钥文件兜底），保证 IDEA 直接运行主类也能连上加密库；注册于 META-INF/spring.factories。",
+  DbCredentials:
+    "数据源 URL、用户名与会话口令的解析入口。口令我安全优先取环境变量/-D，否则由密钥表拼成 H2 要求的『文件口令 空格 用户口令』两段式；describePassword 只输出来源、长度与空格数，不泄露口令。",
+  DataSourceConfig:
+    "显式装配 Hikari 数据源，把整库加密的两段式口令直接交给 H2 驱动，绕开自动配置的取值链路（取到单段口令时 H2 只报 90050，极难定位）。",
   Crypto:
     "加密与完整性原语。AES-GCM 使用随机 96 位 nonce；AAD 绑定成绩身份、状态和版本；HMAC-SHA256 认证内部请求和账本；解密失败统一返回完整性错误。",
   ApiException:

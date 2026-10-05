@@ -1,20 +1,20 @@
 # 测试报告与验证证据
 
-本报告依据实际运行输出生成，不把尚未执行的平台或安全扫描写成通过。六轮（第一轮「组织管理与网上选课」、第二轮「8 条修正」、第三轮「侧栏拖动 + 编号回归主键 `id`」、第四轮「重修语义」、第五轮「学业记录重修状态 + 学业预警可用」、第六轮「初始化数据重建 + 启动清理 + 性能优化」）的原始证据都保存在 `.runtime/logs/`（`junit-summary.json`、`feature-test.json`、`browser-check.json`、`sidebar-resize-check.json`）、各模块 `target/surefire-reports/` 与 `test-results/browser/`（界面截图）；原始交付的摘要记录在 `docs/evidence/`（该目录在当前源码树中不存在，见「复现顺序」说明）。**本文档以第六轮冻结修订上的实测结果为当前值（250 / 201 / 57 / 28），第七轮新增的 OCR/语音两层为 76 / 40（见「第七轮（R7）说明」；其中既有浏览器检查 57 / 57 已在演示数据重建后按本轮复跑，端到端 201 / 201 仍是重建前 `2026-10-05 12:53:45` 的记录），前五轮的旧数字只在各自的小节里作历史对照。**
+本报告依据实际运行输出生成，不把尚未执行的平台或安全扫描写成通过。各轮（第一轮「组织管理与网上选课」、第二轮「8 条修正」、第三轮「侧栏拖动 + 编号回归主键 `id`」、第四轮「重修语义」、第五轮「学业记录重修状态 + 学业预警可用」、第六轮「初始化数据重建 + 启动清理 + 性能优化」、第七轮「成绩录入辅助：本地 OCR + 语音录入」、第八轮「整库加密与动态密钥」）的原始证据都保存在 `.runtime/logs/`（`junit-summary.json`、`feature-test.json`、`browser-check.json`、`sidebar-resize-check.json`、`ocr-voice-unit.json`、`ocr-voice-check.json`）、各模块 `target/surefire-reports/` 与 `test-results/browser/`（界面截图）；原始交付的摘要记录在 `docs/evidence/`（该目录在当前源码树中不存在，见「复现顺序」说明）。**本文档以第八轮冻结修订上的实测结果为当前值（258 / 201 / 57 / 28 / 76 / 40），前七轮的旧数字只在各自的小节里作历史对照。**
 
 ## 环境
 
-本轮实测环境为 Windows、**JDK 17**（`mvn -o clean package` 用 `JAVA_HOME` 指向的 JDK 17 编译，产物 class 文件主版本 61）、Node.js v26.3.0、HTTPS 本机证书、加密 H2 文件库、独立 Java 服务与 Ganache EVM；浏览器检查用本机 Edge 无头模式。第四轮在同一环境复跑，演示库按 `SchemaCatalog.SCHEMA_VERSION = 3` 整库重建为 4 学院 / 8 专业 / 16 班级 / 65 账号 / 35 教学班的规模。原始交付记录的环境为 macOS ARM64、JDK 17.0.13。演示数据为合成数据，不含真实学生信息。
+本轮实测环境为 Windows、**JDK 17**（`JAVA_HOME=D:\JAVA\jdk-jb-17`，`mvn -o test` 离线运行，Maven 3.9.16 来自本机 `.m2\wrapper\dists`）、Node.js v26.3.0、HTTPS 本机证书、**整库加密（H2 `CIPHER=AES`）的 H2 文件库**、独立 Java 服务与 Ganache EVM；浏览器检查用本机 Edge 无头模式。演示库为 4 学院 / 8 专业 / 21 班级 / 205 账号 / 155 教学班 / 1354 条选课 / 1354 条成绩的合成数据，不含真实学生信息。原始交付记录的环境为 macOS ARM64、JDK 17.0.13。
 
 ## 汇总
 
 |测试层|通过|失败|证据|
 |---|---:|---:|---|
-|Java 单元测试（第六轮实测 `mvn -o clean package`）|250|0|[junit-summary.json](../.runtime/logs/junit-summary.json)|
-|feature 端到端（第六轮重跑；第五轮为 201 条）|201|0|[feature-test.json](../.runtime/logs/feature-test.json)|
-|browser 真实浏览器（第六轮重跑；第五轮为 57 条）|57|0|[browser-check.json](../.runtime/logs/browser-check.json)|
-|OCR/语音纯函数单元（第七轮新增，未计入前六轮结论）|76|0|[ocr-voice-unit.json](../.runtime/logs/ocr-voice-unit.json)|
-|OCR/语音浏览器端到端（第七轮新增，未计入前六轮结论）|40|0|[ocr-voice-check.json](../.runtime/logs/ocr-voice-check.json)|
+|Java 单元测试（第八轮实测 `mvn -o test`；第七轮为 250）|**258**|0|各模块 `target/surefire-reports/TEST-*.xml`；汇总脚本 `scripts/junit-summary.mjs` 写入 [junit-summary.json](../.runtime/logs/junit-summary.json)|
+|feature 端到端（第八轮复跑；第五轮起为 201 条）|201|0|[feature-test.json](../.runtime/logs/feature-test.json)|
+|browser 真实浏览器（第八轮复跑）|57|0|[browser-check.json](../.runtime/logs/browser-check.json)|
+|OCR/语音纯函数单元（第七轮新增，第八轮复跑）|76|0|[ocr-voice-unit.json](../.runtime/logs/ocr-voice-unit.json)|
+|OCR/语音浏览器端到端（第七轮新增，第八轮复跑）|40|0|[ocr-voice-check.json](../.runtime/logs/ocr-voice-check.json)|
 |侧栏拖动专项检查（第四轮记录，未重跑）|28|0|[sidebar-resize-check.json](../.runtime/logs/sidebar-resize-check.json)|
 |api|18|0|[api.json](evidence/api.json)|
 |workflow|17|0|[workflow.json](evidence/workflow.json)|
@@ -22,7 +22,7 @@
 |scale|4|0|[scale.json](evidence/scale.json)|
 |Playwright 浏览器|6|0|[browser-summary.json](evidence/browser-summary.json)|
 
-**第六轮实测的是前四行：Java 单元测试 250 条、feature 端到端 201/201、真实浏览器检查 57/57，侧栏拖动专项沿用第四轮记录 28/28，全部 0 失败**。前三条在本轮（初始化数据重建后）跑过，证据文件时间为 `2026-10-04T09:47:57.861Z`、`13:25:30.914Z`、`13:26:43.751Z`（侧栏专项 `2026-10-03T15:31:28.982Z`）。**前五轮的记录只在下方各节作历史对照，不代表当前值**：第一轮 204 / 114 / 15，第二轮 234 / 156 / 35，第三轮 230 / 164 / 44，第四轮 243 / 183 / 50，第五轮 248 / 201 / 57。其余五行是原始交付记录，本轮未重新执行，且其脚本在当前源码树中不存在（见文末「复现顺序」），不计入本轮结论。不同层级包含多条断言，这个数量不等同于穷举所有输入组合。
+**第八轮实测的是前六行：Java 单元测试 258 条、feature 端到端 201/201、真实浏览器 57/57、OCR/语音单元 76/76、OCR/语音浏览器 40/40，全部 0 失败**（侧栏专项沿用第四轮记录 28/28）。证据文件时间：`ocr-voice-unit` `2026-10-05T16:18:50.973Z`（本机 `2026-10-06 00:18:50`）、`ocr-voice-check` `16:20:11.747Z`、`browser-check` `16:21:09.371Z`、`feature-test` `16:21:41.662Z`；Java 单元测试在 `2026-10-06 00:25` 由 `mvn -o test` 重跑，surefire 报告为本机 `0:25:09`–`0:25:14`。**前七轮的记录只在下方各节作历史对照，不代表当前值**：第一轮 204 / 114 / 15，第二轮 234 / 156 / 35，第三轮 230 / 164 / 44，第四轮 243 / 183 / 50，第五轮 248 / 201 / 57，第六轮 250 / 201 / 57，第七轮 Java 未改动（250）+ OCR/语音 76 / 40。其余五行是原始交付记录，本轮未重新执行，且其脚本在当前源码树中不存在（见文末「复现顺序」），不计入本轮结论。不同层级包含多条断言，这个数量不等同于穷举所有输入组合。
 
 ## 第三轮（R3）说明（历史记录）
 
@@ -348,6 +348,105 @@
 
 > **跑完测试后请重启一次服务**：`scripts/feature-test.mjs` 每次运行都会在测试学期 `2027-2` 新建教学班与选课批次，而系统没有课程/批次的删除接口。**不需要 `-ResetDb`**——只要用 `scripts/start.ps1` 重启一次，`DemoInitializer.purgeTestArtifacts()` 就会在灌数前把它们连同选课、成绩、选课流水与分析一起清掉（日志形如上面第一条）。这也正是本轮 `feature-test.json` 停在 `12:53:45`（重建前）而没有复跑的原因：复跑会再次留下测试课程。详见 [演示账号与场景指南.md](演示账号与场景指南.md) 的「两个必须知道的行为」。
 
+## 第八轮（R8）说明：整库加密与动态密钥
+
+第八轮改的是**凭据与数据库文件**这一层：删除全部硬编码密钥，改为启动时动态生成并注入；数据库开启 H2 整库加密（`CIPHER=AES`）。**本轮不新增、不修改任何 HTTP 接口**，业务规则、权限模型与前端交互都没有变化，因此测试的重点是「配置与存储层的契约」加上「既有四层回归没有被打坏」。
+
+### 8.1 结果
+
+|验证项|结果|证据|时间（本机 / UTC）|
+|---|---|---|---|
+|Java 单元测试 `mvn -o test`|**258 / 0 失败**（6 个模块）|各模块 `target/surefire-reports/TEST-*.xml`|2026-10-06 00:25（`0:25:09`–`0:25:14`）|
+|端到端功能 `node scripts/feature-test.mjs`|**201 / 201 通过**|`.runtime/logs/feature-test.json`|2026-10-06 00:21:41 / `16:21:41.662Z`|
+|既有浏览器 `node scripts/browser-check.mjs`|**57 / 57 通过**|`.runtime/logs/browser-check.json`|2026-10-06 00:21:09 / `16:21:09.371Z`|
+|OCR/语音纯函数单元 `node scripts/ocr-voice-unit.mjs`|**76 / 76 通过**|`.runtime/logs/ocr-voice-unit.json`|2026-10-06 00:18:50 / `16:18:50.973Z`|
+|OCR/语音浏览器端到端 `node scripts/ocr-voice-check.mjs`|**40 / 40 通过**|`.runtime/logs/ocr-voice-check.json`|2026-10-06 00:20:11 / `16:20:11.747Z`|
+|侧栏拖动专项 `node scripts/verify-sidebar-resize.mjs`|28 / 28（沿用第四轮记录，本轮未重跑）|`.runtime/logs/sidebar-resize-check.json`|2026-10-03 / `15:31:28.982Z`|
+
+四层前端（76 / 40 / 57 / 201）与 Java 单元测试全部跑在**同一套整库加密的演示数据**上，顺序为 OCR/语音单元 → OCR/语音浏览器 → 既有浏览器 → 端到端功能，说明「数据库改成加密文件 + 密钥全部换成随机值」没有打破任何既有断言。
+
+### 8.2 Java 单元测试（258 条，逐模块）
+
+```text
+C:\Users\AlexLiong\.m2\wrapper\dists\apache-maven-3.9.16-bin\5grr65jo27hi51sujmtcldfovl\apache-maven-3.9.16\bin\mvn.cmd -o test
+（JAVA_HOME=D:\JAVA\jdk-jb-17）
+```
+
+|模块|用例数|失败|按测试类的明细|
+|---|---:|---:|---|
+|common|**22**|0|`ConfigGuardTest` **7（本轮新增）**、`CryptoTest` 6、`ProtocolTest` 5、`SettingsTest` 4|
+|gateway|10|0|`RegistryControllerTest` 10|
+|data-service|**25**|0|`DataRpcControllerTest` 10、`SchemaCatalogTest` **9（本轮 +1）**、`SqlCompilerTest` 6|
+|business-service|195|0|`SelectionServiceTest` 48、`OrganizeRoutesTest` 36、`CourseServiceTest` 34、`OrganizationServiceTest` 23、`GradeServiceTest` 14、`ModelsTest` 12、`AdminServiceTest` 8、`AuthServiceTest` 8、`GradeRulesTest` 6、`AnalyticsRulesTest` 6|
+|audit-service|6|0|`AuditControllerTest` 3、`LedgerServiceTest` 3|
+|**合计**|**258**|**0**|22 + 10 + 25 + 195 + 6 = 258|
+
+本轮净增 **8 条**（250 → 258）：`ConfigGuardTest` +7、`SchemaCatalogTest` +1（`rebuildsWhenSecretsFingerprintChanges`），business/gateway/audit 三个模块的用例数不变——这正是「本轮没有触碰业务规则」的可验证证据。
+
+`ConfigGuardTest` 的 7 条覆盖：
+
+|用例|断言要点|
+|---|---|
+|`everyCredentialUsedByTheStackIsRequired`|密钥清单包含 9 项且数量恰为 9（增删密钥必须同步 `setup.mjs` 与启动脚本）|
+|`generatedKeyIsStrongAndUnique`|随机密钥为 64 字符 `[0-9a-f]`（32 字节十六进制），连续 8 次不重复|
+|`fingerprintIsStableAndSensitiveToEveryKey`|同一组密钥指纹稳定、长度 16；**任一**密钥变化都会改变指纹|
+|`fingerprintDoesNotLeakKeyMaterial`|指纹串里不出现密钥内容|
+|`productionRejectsPlaceholdersAndShortValues`|生产档判据：`KEY` / `passwd` / `campus-dev-tls-2024` / 长度不足 / `null` 全部拒绝，64 位随机值通过|
+|`secretsFileLocationIsAbsoluteAndOverridable`|密钥文件路径为绝对路径、文件名以 `secrets.json` 结尾，`-Dcampus.secrets` 可覆盖|
+|`databasePasswordFormatMatchesH2Contract`|两段式口令恰有一个空格；`describePassword()` 含「长度」且不含 32 位以上十六进制串（诊断不泄露口令）|
+
+`SchemaCatalogTest` 本轮新增的 `rebuildsWhenSecretsFingerprintChanges` 断言：结构版本相同、只把 `schema_meta.version_value` 改成 `3:0000000000000000`（模拟换密钥）时，`wasRebuilt()` 为 true 且旧数据被清空；原有的「结构版本落后」用例也改为比对整串 `SCHEMA_VERSION + ":" + ConfigGuard.dataFingerprint()`。
+
+### 8.3 加密实证（整库加密，H2 `CIPHER=AES`）
+
+以下都在本机对 `.runtime/database/campus.mv.db` 实际执行：
+
+|验证|命令 / 做法|结果|
+|---|---|---|
+|库文件头是密文标记|读取文件前 64 字节|`H2encrypt`（明文库为 `H:2,block:...`）|
+|库里没有明文|按 ISO-8859-1 读全文件后检索 `password`、`$2a$`、`李老师`、`t1101`、`CS401`、`20241530`、`course_selections`、`schema_meta`、`users`、`grades`|**命中数全部为 0**（同一文件里 `H2encrypt` 命中 1 次，即文件头）|
+|正确两段式口令可打开|用 `secrets.json` 的 `DB_CIPHER_KEY + " " + DB_PASSWORD` 连接|成功，`users` 表 205 行（与演示数据一致）|
+|只给单段口令|只传用户口令|`Wrong password format, must be: file password <space> user password [90050-224]`|
+|文件口令错|两段式的第一段换错|`Encryption error in file ... [90049-224]`|
+|密钥文件形态|`node -e` 读取 `.runtime/secrets.json`|9 项、每项 64 字符、全部匹配 `[0-9a-f]{64}`|
+|启动日志的口令形态|服务日志首行|`[ConfigGuard] 数据源口令来源：环境变量，长度 129，空格数 1` 与 `[DataSourceConfig] 数据库 jdbc:h2:file:./.runtime/database/campus;CIPHER=AES;AUTO_SERVER=TRUE；会话口令：环境变量，长度 129，空格数 1`|
+
+> 复核方式：`campus.mv.db` 在被运行中的 data-service 打开时会被加锁，此时无法用普通读打开——先停服务再读文件头/做明文检索。文件头与「明文检索 0 命中」这两条与环境无关，比库文件体积更可靠。
+
+口径说明：这两条启动日志来自本机用 `scripts/start.ps1` 启动的四个服务（脚本同时注入环境变量与 `-D`，环境变量优先级更高，所以来源显示「环境变量」）；在 IDEA 里直接跑主类、不设任何环境变量时同样两行会显示「密钥文件（两段式）」。`长度 129` = 64 + 1 个空格 + 64，可作为「两段式有没有被拆开」的第一手判据。
+
+**库文件体积**：本机同一个加密库在两次观测中为 **2,224,128 字节（约 2.1 MB，data-service 刚写完演示数据时）** 与 **1,118,208 字节（约 1.07 MB，H2 关闭/重新打开后自动整理过一次）**；同目录另有 `campus.trace.db`（H2 跟踪日志，与业务数据无关）。H2 会在打开/关闭时做有限的自动整理，因此**库文件大小会随打开次数波动，不能当作数据量或加密开销的指标**；整库加密也不承诺压缩体积（密文与明文同量级）。本文因此不引用任何单一「库文件应为 N KB」的结论；要复核加密是否生效，请用上表的**文件头与明文检索**两条判据。
+
+### 8.4 负向验证（必须实际失败才算通过）
+
+|场景|做法|预期与实测|
+|---|---|---|
+|生产档缺密钥拒绝启动|设 `CAMPUS_PROFILE=prod`（或 `-Dcampus.profile=prod`）并让部分密钥缺失|`ConfigGuard.load()` 抛 `配置校验未通过，拒绝启动（CAMPUS_PROFILE=prod）。` + 「缺少密钥：…」清单；进程在 `SpringApplication.run` 之前中止。单元层由 `productionRejectsPlaceholdersAndShortValues` 覆盖判据本身|
+|生产档仍是占位值|把某项设成 `KEY` / `passwd` / `campus-dev-tls-2024`|同上，清单里的条目带「（长度 N）」|
+|单段口令|只给 `DB_PASSWORD` 一段|H2 报 `Wrong password format, must be: file password <space> user password [90050-224]`|
+|文件口令错|两段式的第一段错误|H2 报 `Encryption error in file ... [90049-224]`|
+|chain-worker 缺密钥|不设 `LEDGER_KEY` 且没有 `secrets.json`|`[chain-worker] 缺少可用密钥 LEDGER_KEY：请先运行 node scripts/setup.mjs 生成 .runtime/secrets.json…` 后 `process.exit(1)`|
+|明文库迁移|把旧的未加密 `campus.mv.db` 放回目录后启动|`[SchemaCatalog] 检测到未加密的 H2 明文库，已删除并改为加密库重建：…` + `[DatabaseBootstrap] 明文库已清理，将以加密库重新初始化演示数据。`|
+
+### 8.5 密钥轮换的后果（实测路径，需谨慎执行）
+
+任何一项密钥变化都会让 `schema_meta.version_value` 里的「结构版本:密钥指纹」不匹配，启动即整库重建（`SchemaCatalogTest.rebuildsWhenSecretsFingerprintChanges` 覆盖）。`node scripts/setup.mjs --reset` 会重新生成全部 9 项密钥与 TLS 证书：
+
+```text
+[SchemaCatalog] 结构版本 3:1a2b3c4d5e6f7788 与目标 3（密钥指纹 9f8e7d6c5b4a3210）不一致：删除全部业务表后重建（原有数据：有，将被清空）。
+[DemoInitializer] 收到显式重建开关，删除全部业务表并重新灌入数据。
+```
+
+因此**轮换前必须备份 `.runtime/database/`**，并接受「旧成绩密文、审计发件箱与账本区块不可解密」这一事实；轮换的完整处置见 [配置说明 3.3.5](configuration.md#335-密钥轮换的后果整库重建)。
+
+### 8.6 本轮改动没有影响的东西（回归口径）
+
+- **接口清单没变**：`docs/api.md` 的接口总数、请求体与响应体一个都没动；整库加密在 JDBC 连接层完成，网关、业务服务与浏览器感知不到（见 [api.md](api.md) 开头的说明）。
+- **登录密码没变**：数据库口令是文件级/进程级的，演示账号密码仍是 `passwd`；上述 201 / 57 / 40 三层浏览器与接口测试全部用 `passwd` 登录成功，本身就是这条结论的证据。
+- **业务规则没变**：business-service 的 195 条用例一条未改且全绿。
+- **测试残留清理逻辑没变**：`feature-test.mjs` 仍会在 `2027-2` 留下测试课程与批次，跑完**重启一次服务**由 `DemoInitializer.purgeTestArtifacts()` 清掉（**不需要** `-ResetDb`）；这一条在第八轮同样适用，因为本轮没有新增课程/批次的删除接口。
+
+
 ## api · 2026-09-08T16:40:00.312Z
 
 |检查|结果|耗时 ms|
@@ -662,21 +761,22 @@ Ganache 7.9.2 捆绑部分依赖，兼容修复后仍有 elliptic、secp256k1、
 本轮实际执行的命令与顺序如下（离线 Maven 与 Node 均可直接运行）：
 
 ```text
-mvn -o clean package                  # 250 条 Java 单元测试，第六轮冻结修订上实测全绿
+mvn -o test                           # 258 条 Java 单元测试，第八轮实测全绿
 # 由 scripts/start.ps1（或 scripts/start.sh）启动四个 Java 服务与 chain-worker
-node scripts/feature-test.mjs         # 端到端断言 201 条（第六轮记录；本轮未复跑——它会再次在 2027-2 留下测试课程，现有证据是 2026-10-05 12:53:45 的记录）
+node scripts/feature-test.mjs         # 端到端断言 201 条（第八轮复跑 201/201）
 # 另开前端开发服务器（默认 https://127.0.0.1:5173）后：
-node scripts/browser-check.mjs        # 真实浏览器检查 57 条（本轮在按 -ResetDb 重建后的演示数据上复跑 57/57）
-node scripts/verify-sidebar-resize.mjs # 侧栏拖动专项检查 28 条（见 .runtime/logs/sidebar-resize-check.json）
-node scripts/capture-selection.mjs    # 生成学生选课台截图（可选，用于人工查看）
-node scripts/generate-ocr-fixtures.mjs # 生成 OCR 固定测试图集 10 张到 test-results/ocr/（第七轮；加 --force 重新生成）
-node scripts/ocr-voice-unit.mjs       # OCR/语音纯函数单元测试 76 条（第七轮；本轮移除语音口令切行）
-node scripts/ocr-voice-check.mjs      # OCR/语音浏览器端到端 40 条 + 逐图字段级准确率（第七轮，需四个服务与前端开发服务器同时运行）
+node scripts/browser-check.mjs        # 真实浏览器检查 57 条（第八轮复跑 57/57）
+node scripts/verify-sidebar-resize.mjs # 侧栏拖动专项检查 28 条（第四轮记录，未重跑）
+node scripts/ocr-voice-unit.mjs       # OCR/语音纯函数单元测试 76 条（第八轮复跑 76/76）
+node scripts/ocr-voice-check.mjs      # OCR/语音浏览器端到端 40 条（第八轮复跑 40/40）
+node scripts/generate-ocr-fixtures.mjs # 生成 OCR 固定测试图集 10 张到 test-results/ocr/（可选，--force 重新生成）
 node scripts/junit-summary.mjs        # 汇总各模块 surefire 报告为 .runtime/logs/junit-summary.json
-node scripts/generate-docs.mjs --check # 生成式文档与源码一致（64 个 Java 命名类型）
+node scripts/generate-docs.mjs --check # 生成式文档与源码一致（见下方说明：当前源码树共 69 个 Java 命名类型，该检查尚未通过）
 ```
 
-单测汇总证据 `.runtime/logs/junit-summary.json` 由各模块 `target/surefire-reports/TEST-*.xml` 汇总而来（`mvn -o clean package` 之后运行 `scripts/junit-summary.mjs` 生成），第六轮记录总数为 250、失败 0，`generatedAt = 2026-10-04T09:47:57.861Z`；历史记录：第五轮 248、第四轮 243、第三轮 230、第二轮 234（见上文各历史小节）。<br>
+**生成式文档的当前状态要说清楚**：`scripts/SourceInventory.java` 用 JDK `JavacTask` 解析真实语法树，第八轮实测源码树共 **69 个 Java 命名类型**（第六轮及以前为 64，新增 `ConfigGuard`、`DatabaseBootstrap`、`DbCredentials`、`ConfigEnvironmentPostProcessor`、`DataSourceConfig` 五个）。本轮的改动只允许写 Markdown，因此 `docs/classes.md` 与 `docs/class-diagrams.md` 已按生成格式**手工补齐这五个类型的条目**（成员清单来自实际运行 `java scripts/SourceInventory.java .` 的输出，逐个核对），但 `docs/source-inventory.json` 仍是旧快照，`node scripts/generate-docs.mjs --check` 会因 `docs/classes.md` 的内容与脚本重新生成的文本不完全相同而报 `Outdated generated documentation`。要让它通过，需在允许写非 Markdown 文件时执行一次 `node scripts/generate-docs.mjs`（会重写 `docs/classes.md`、`docs/class-diagrams.md`、`docs/source-inventory.json`），并在脚本的 `descriptions` 表里为新类型补上职责说明，否则新条目会退化成默认文案「协议或组件的内部类型。」。历史记录：第六轮 64 个类型时该检查通过，第五轮 63、第四轮 61。
+
+单测汇总证据 `.runtime/logs/junit-summary.json` 由各模块 `target/surefire-reports/TEST-*.xml` 汇总而来（`mvn -o test` 之后运行 `scripts/junit-summary.mjs` 生成）。**该文件当前仍是第六轮的记录（250 条、`generatedAt = 2026-10-04T09:47:57.861Z`），因为第八轮只重跑了 `mvn -o test` 而没有重跑汇总脚本**；第八轮 258 条的权威证据是各模块 `target/surefire-reports/`（本机 `2026-10-06 0:25:09`–`0:25:14`）与本文 8.2 的逐模块表格，跑一次 `node scripts/junit-summary.mjs` 即可把 JSON 更新到 258。历史记录：第七轮 250、第六轮 250、第五轮 248、第四轮 243、第三轮 230、第二轮 234。
 
 **跑完端到端脚本后的演示库清理**：`feature-test.mjs` 会在测试学期 `2027-2` 新建教学班并在 `[12]` 把学生全部退回，
 但**不会删除这些教学班**（系统没有删除课程的接口，教务用「取消教学班」下架课程）。因此反复运行后，课程下拉里会堆积
@@ -705,8 +805,8 @@ node scripts/scale-test.mjs
 npm --prefix frontend run test:e2e
 ```
 
-> 需要说明的是：当前源码树的 `scripts/` 目录包含 `browser-check.mjs`、`capture-selection.mjs`、`feature-test.mjs`、`generate-docs.mjs`、`generate-ocr-fixtures.mjs`（第七轮）、`ocr-voice-check.mjs`（第七轮）、`ocr-voice-unit.mjs`（第七轮）、`SourceInventory.java`、`setup.mjs`、`start.sh` 与 `start.ps1`。上面第二段里的 `api-test.mjs`、`workflow-test.mjs`、`tamper-test.mjs`、`scale-test.mjs` 在本次交付的源码树中**不存在**，`docs/evidence/` 目录也不存在；`npm --prefix frontend run test:e2e` 所需的 Playwright 用例亦未随源码提供（本轮的浏览器验证改由 `scripts/browser-check.mjs` 与 `scripts/ocr-voice-check.mjs` 承担，截图在 `test-results/browser/`）。因此本轮的验证证据只以 `mvn -o clean package` 的 surefire 报告与 `junit-summary.json`、`feature-test.mjs`、`browser-check.mjs`、`ocr-voice-unit.mjs`、`ocr-voice-check.mjs` 的输出为准；第二段描述的是历史回归流程，不是本次实际执行的命令清单。
+> 需要说明的是：当前源码树的 `scripts/` 目录包含 `browser-check.mjs`、`capture-selection.mjs`、`feature-test.mjs`、`generate-docs.mjs`、`generate-ocr-fixtures.mjs`（第七轮）、`junit-summary.mjs`、`ocr-voice-check.mjs`（第七轮）、`ocr-voice-unit.mjs`（第七轮）、`SourceInventory.java`、`setup.mjs`、`start.sh`、`start.ps1` 与 `verify-sidebar-resize.mjs`。上面第二段里的 `api-test.mjs`、`workflow-test.mjs`、`tamper-test.mjs`、`scale-test.mjs` 在本次交付的源码树中**不存在**，`docs/evidence/` 目录也不存在；`npm --prefix frontend run test:e2e` 所需的 Playwright 用例亦未随源码提供（浏览器验证由 `scripts/browser-check.mjs` 与 `scripts/ocr-voice-check.mjs` 承担，截图在 `test-results/browser/`）。因此当前的验证证据以 `mvn -o test` 的 surefire 报告、`.runtime/logs/` 下的六份 JSON（`feature-test`、`browser-check`、`ocr-voice-unit`、`ocr-voice-check`、`sidebar-resize-check`、`junit-summary`）与本文 8.3 的加密实证为准；第二段描述的是历史回归流程，不是本次实际执行的命令清单。
 >
-> Windows 下启动服务请使用 `scripts/start.ps1`：PowerShell 会把 `-Dcampus.reset-db=true` 这类参数拆坏，脚本用参数数组直接调用 `java`；需要整库重建时先设置 `CAMPUS_RESET_DB=true` 或使用该脚本的重建开关。
+> Windows 下启动服务请使用 `scripts/start.ps1`：它会读取 `.runtime/secrets.json` 把密钥同时注入为环境变量与 `-D` 启动参数，把参数写进 `.logs/jvm.args`（两段式 `-DDB_PASSWORD` 加引号，否则 JVM 的 argfile 解析器会按空白把它拆成两个参数），并以独立隐藏窗口启动各服务，脚本本身可以退出。需要整库重建时用 `-ResetDb`（等价 `-Dcampus.reset-db=true` 或 `CAMPUS_RESET_DB=true`）。
 
 测试共享同一演示数据库，应按顺序执行。tamper-test 会停止并重新启动服务，scale-test 会临时启动第二业务副本，不能与写入或浏览器测试并发。Playwright 首次需安装浏览器：在 frontend 目录执行 `npx playwright install chromium`，或设置 BROWSER_EXECUTABLE 指向已安装的 Chromium（本机实测使用 `BROWSER_EXECUTABLE` 指向已安装的 Edge）。

@@ -22,9 +22,45 @@ flowchart LR
     Audit -.租约心跳.-> Gateway
 ```
 
+四个 Java 进程都从 `.runtime/secrets.json`（或环境变量 / `-D` 启动参数）取得同一套密钥与服务间签名密钥；数据服务的库文件以 `CIPHER=AES` **整库加密**，与业务库分离的独立账本另有自己的 AES 密钥与 HMAC 密钥。
+
+启动顺序（`scripts/start.ps1` / `start.sh` 实测顺序）：chain-worker → gateway →（约 8 秒）data-service → audit-service →（约 12 秒）business-service。`business-service` 依赖数据与审计服务，`chain-worker` 必须先于审计服务可用；四个主类的 `main` 第一行都是 `DatabaseBootstrap.prepare()`，它在 Spring 之前完成密钥加载与明文库检查。
+
 ### common
 
 `Protocol` 定义值对象和两种远程接口；`RpcClient` 负责发现、签名、调用和错误映射；`InternalSecurity` 验证服务身份、时间窗、随机数；`Settings` 读取环境变量及随机配置；`Crypto` 提供 AES-GCM/HMAC/SHA-256。通用模块不包含领域权限或数据库操作。
+
+配置与凭据的引导也在 `common`，构成一条**确定顺序**的启动链（顺序不可交换，否则数据源会拿到空口令）：
+
+```mermaid
+sequenceDiagram
+  participant Main as XxxApplication.main
+  participant Boot as DatabaseBootstrap.prepare()
+  participant Guard as ConfigGuard.load()
+  participant File as .runtime/secrets.json
+  participant Cat as SchemaCatalog（仅 data-service 进程可反射到）
+  participant PP as ConfigEnvironmentPostProcessor
+  participant Spring as SpringApplication.run
+  Main->>Boot: 第一行调用（4 个主类都调用）
+  Boot->>Guard: 读取/生成 9 项密钥
+  Guard->>File: 环境变量 > -D > 文件（开发档缺失即就地生成并落盘）
+  Guard->>Guard: 生产档校验（缺密钥/占位值/长度<16 → 拒绝启动）
+  Guard-->>Boot: 注入系统属性 + 返回密钥表
+  Boot->>Cat: dropLegacyPlaintextDatabase(DB_URL)
+  Note over Cat: 文件头 H2encrypt=加密库；H2:=明文库 → 删除后重建
+  Boot->>Spring: SpringApplication.run
+  Spring->>PP: EnvironmentPostProcessor（最高优先级 +10）
+  PP->>PP: 把密钥与 spring.datasource.* 注入 Environment（显式配置不覆盖）
+  PP->>Spring: 绑定配置 → 建 Hikari 数据源 → 业务 Bean
+```
+
+|类型|职责|关键点|
+|---|---|---|
+|`ConfigGuard`|密钥清单（9 项）、读取/生成、系统属性注入、生产档校验、`dataFingerprint()`|`REQUIRED_KEYS` 与 `setup.mjs` 的 `SECRET_KEYS`、`start.ps1`/`start.sh` 的 `secretNames` 一一对应；指纹取 SHA-256 前 8 字节十六进制|
+|`DatabaseBootstrap`|进程级引导：加载密钥 + 明文库迁移检查|**幂等**，四个主类 `main` 第一行调用；反射调用 `edu.campus.data.SchemaCatalog.dropLegacyPlaintextDatabase`，非 data-service 进程取不到该类时直接跳过（`ClassNotFoundException` 视为正常）|
+|`ConfigEnvironmentPostProcessor`|在配置绑定前注入密钥与 `spring.datasource.url/username/password`|`Ordered.HIGHEST_PRECEDENCE + 10`；用 `addFirst` 注册 `MapPropertySource`（`addLast` 会被 yml 里的同名字面量挡住）；环境变量 / `-D` 已给出的值不覆盖|
+|`DbCredentials`|解析 JDBC URL、用户名与两段式口令，并提供 `describePassword()`|只打印「来源 + 长度 + 空格数」；`DB_PASSWORD` 环境变量 / `-D` 优先，否则由 `ConfigGuard.databasePassword()` 拼「文件口令 + 空格 + 用户口令」|
+|`Settings`|`环境变量 > 系统属性 > campus.<key>`|`root()` 刻意不依赖密钥加载（密钥文件本身要落在这个目录下，否则形成循环）|
 
 ### gateway
 
@@ -80,6 +116,27 @@ flowchart LR
 
 `SchemaCatalog` 定义白名单表、列和类型，并初始化教学数据库结构。`SqlCompiler` 只拼接已验证的标识符，全部实际值使用 `?` 绑定。`TransactionService` 在一项事务中执行多表操作、检查每条影响行数、写入加密审计发件箱。成绩载荷解密仅发生在授权业务服务的签名查询中。
 
+#### 数据存储层的加密与密钥注入位置
+
+存储层现在有**两层独立加密**，位置与用途都不同：
+
+|层|实现位置|粒度|保护对象|
+|---|---|---|---|
+|整库静态加密|JDBC URL 的 `CIPHER=AES`（`DbCredentials.url()` 提供默认值）+ `DataSourceConfig` 显式装配 Hikari 数据源|整个库文件|拷走 `.mv.db`、备份卷或磁盘镜像后读到的全部内容（含账号、密码哈希、选课、成绩密文本身）|
+|字段级加密|`TransactionService` 的 AES-GCM（`Crypto`）|单行 `payload` 等列|成绩载荷与审计发件箱：AAD 绑定 `id\|course_id\|student_id\|state\|version`，密文与身份、状态、版本绑定|
+
+密钥注入点集中在三处，都在数据源建立之前：
+
+```text
+main → DatabaseBootstrap.prepare() → ConfigGuard.load()（读/生成 9 项密钥 → 注入系统属性）
+     → SpringApplication.run → ConfigEnvironmentPostProcessor（注入 Environment）
+     → DataSourceConfig.dataSource()（DbCredentials.url/username/password → HikariDataSource）
+```
+
+`DataSourceConfig` **刻意不走 Spring Boot 的自动配置取值链路**（`spring.datasource.password` → 配置绑定 → `DataSourceProperties`）：整库加密需要「文件口令 + 空格 + 用户口令」两段式，取值链路一旦被同名单值（例如运维只导出了单段 `DB_PASSWORD`）干扰，H2 只会报 `Wrong password format ... [90050-224]`，很难定位。因此由 Java 直接取值并显式构造连接池，取值来源与顺序完全确定；启动日志只打印「来源 + 长度 + 空格数」。`spring.datasource.hikari` 的绑定仍然生效（`@ConfigurationProperties`），`dataSourceProperties()` 也保留供排障复用，但口令一律由 `DbCredentials` 决定。
+
+整库加密对上层完全透明：`SqlCompiler`、`TransactionService`、业务服务与浏览器都感知不到它，接口形状不变。
+
 #### 结构版本驱动的重建流程
 
 本轮把数据库初始化改为「结构版本驱动」：`SchemaCatalog.SCHEMA_VERSION` 与库中 `schema_meta` 记录的版本不一致时删除全部业务表并按目标结构重建，随后 `DemoInitializer` 重灌演示数据。重建会连带影响审计侧，因此流程是三个组件协同的，顺序不能颠倒：
@@ -92,8 +149,8 @@ sequenceDiagram
   participant Audit as AuditApplication
   participant Ledger as LedgerService
   participant Chain as chain-worker
-  Data->>Cat: 启动时比对 SCHEMA_VERSION 与 schema_meta
-  alt 版本不一致
+  Data->>Cat: 启动时比对「结构版本:密钥指纹」与 schema_meta
+  alt 标记不一致（结构升级或密钥轮换）
     Cat->>Cat: DROP 全部业务表（含 schema_meta）
     Cat->>Cat: 按目标结构重新建表、建唯一索引与普通索引
     Note over Cat: wasRebuilt()=true
@@ -104,12 +161,16 @@ sequenceDiagram
     Ledger->>Ledger: 截断并重写账本文件 + fsync
     Demo->>Data: 灌入组织 / 账号 / 教学班 / 选课 / 成绩
     Demo->>Audit: /internal/bootstrap-anchored（重新锚定成绩事件）
-  else 版本一致
+  else 标记一致
     Cat->>Cat: 只补缺表、缺列，不动数据
   end
 ```
 
 三次触发条件任一成立即重建：结构版本不一致、显式重建开关（`-Dcampus.reset-db=true` 或 `CAMPUS_RESET_DB=true`）、业务表为空（首次启动）。`wasRebuilt()` 让初始化器知道结构刚刚被清空，因此即使库里已经没有数据也会重新灌入。
+
+`storedMarker()` 与 `structureMarker()` 比较的是**整串** `结构版本:密钥指纹`，不是单纯的数字版本：成绩 payload、审计发件箱与账本区块都用当时那组密钥加密，密钥一换旧密文就解不开，所以轮换密钥同样必须整库重建（`SchemaCatalogTest.rebuildsWhenSecretsFingerprintChanges` 覆盖该分支）。指纹由 `ConfigGuard.dataFingerprint()` 计算，只落 16 位十六进制摘要，可比对但不可反推密钥。日志会同时打印两侧取值：`[SchemaCatalog] 结构版本 3:1a2b3c4d5e6f7788 与目标 3（密钥指纹 9f8e7d6c5b4a3210）不一致：删除全部业务表后重建（原有数据：有，将被清空）。`
+
+另有一个**在 Spring 之前**执行的存储层检查：`DatabaseBootstrap.prepare()` 在四个主类 `main` 的第一行调用，读取 JDBC URL 并按文件头判断库文件是否还是旧的明文库（加密库 `H2encrypt`、明文库 `H2:`），命中明文库即删除并说明原因，随后才 `SpringApplication.run`。这样开启 `CIPHER=AES` 后不会出现 H2 的 `File corrupted while reading record` 这类难以定位的异常。
 
 结构版本第二轮升到 `3`，对应「`classes` 去掉 `counselor` 列」这一无法用补列修复的变化（旧库会保留该列与相关约束）。演示数据同时扩充为多学院规模：`DemoInitializer` 写入 4 学院 / 8 专业 / 21 班级 / 205 账号 / 155 教学班（64 正课 + 91 历史样本）/ 1354 条选课 / 1354 条成绩，并预置一个 2026-1 的进行中选课批次；每次启动会先执行 `purgeTestArtifacts()` 清掉端到端脚本残留的测试课程与测试批次，灌数结束时调用 `verifyOrganizationIntegrity()`、`verifyTranscriptIntegrity()`、`verifyPredictionCoverage()` 逐项自检，任何一项不合法直接抛异常中止启动，避免脏数据静默入库。
 
@@ -123,7 +184,7 @@ sequenceDiagram
 
 必须明确边界：`POST /reset` 让账本可以被合法清空，**只适用于本机演示重建**，生产环境不得暴露该端点；整库重建也只适用于演示与教学环境，生产库必须改用迁移管理工具。
 
-Windows 一键启动使用 `scripts/start.ps1`（PowerShell 会把 `-Dcampus.reset-db=true` 这类参数拆坏，脚本以参数数组直接调用 `java`），Linux/macOS 使用 `scripts/start.sh`。
+Windows 一键启动使用 `scripts/start.ps1`：它读取 `.runtime/secrets.json`，把 9 项密钥**同时**注入为环境变量与 `-D` 启动参数（两段式 `-DDB_PASSWORD` 在 `.logs/jvm.args` 里加引号，因为 JVM 的 argfile 解析器按空白拆分参数），再以独立隐藏窗口启动各服务，因此脚本本身可以退出。启动顺序为 chain-worker → gateway →（约 8 秒）data-service → audit-service →（约 12 秒）business-service；手工用 `java -jar` 直接写 `-D` 参数时 PowerShell 会把参数拆坏，典型报错是 `ClassNotFoundException: /encoding=UTF-8`。Linux/macOS 使用 `scripts/start.sh`。
 
 JDBC `ResultSet` 分页用于保持数据库可移植性。它会扫描到 offset，适合教学数据；大型数据库应使用方言分页及索引，不将此实现视为大规模报表引擎。主键和唯一索引由数据库保证；引用关系由业务服务校验，生产迁移应补充显式外键和版本化 DDL。
 
@@ -150,9 +211,9 @@ JDBC `ResultSet` 分页用于保持数据库可移植性。它会扫描到 offse
 
 按课程选课弹窗是唯一新增的写操作界面：`openEnrollment(course)` 读取 `GET /roster?courseId=`（当前名单）与 `GET /organizations/students?size=300`（学生候选，需要 `ORG_ADMIN`），提交 `POST /enrollments/batch` 后刷新名单与课程列表，并把 `added`/`skipped`/`removed` 与 `failed` 明细展示给管理员。学生名单接口的权限口径没有为本轮放宽：若当前账号缺少 `ORG_ADMIN`，前端捕获 403 后降级提示「学生列表不可用，仍可按班级整班处理」，仍可通过班级名称完成整班选课——这条降级路径不改变服务端的鉴权结论。
 
-## 成绩录入辅助（浏览器本地）
+## 成绩录入方式与录入辅助（浏览器本地）
 
-成绩单图片识别与语音录入是**展示层内部的本地能力**，不是新的业务域，也没有新的服务边界：
+教师为一门课录入成绩有三种入口：**手工逐格输入**、**上传成绩单图片识别**、**语音口述**。三者在系统里的地位完全相同——都只产出「录入表单草稿」，都要经教师确认后点「暂存」才落库，再从「提交」公开。本节说明这三种入口共用的分层位置与边界；其中图片识别与语音解析是**展示层内部的本地能力**，不是新的业务域，也没有新的服务边界：
 
 ```mermaid
 flowchart LR
@@ -180,8 +241,10 @@ flowchart LR
 |---|---|
 |经过网关吗？|**不经过**。识别、解析、列映射、逐格编辑都在页面内完成；tesseract.js 的 worker/WASM/`eng` 语言包是本站静态资源（`frontend/public/ocr/`），由浏览器直接 GET，不构成 API 调用。后端接口一个都没有新增|
 |是新的领域服务吗？|**不是**。它不持有规则真相：成绩项来自课程的权重表（`activeComponents`）、名册来自 `GET /roster`、已有成绩来自 `GET /grades`，识别与语音只产出"待教师确认的填表建议"|
-|与录入表单的关系|确认填入与手工敲键走**同一个** `score()`，因此同样置 `dirty`，同样需要点「暂存」才落库；没有"导入即提交"的旁路|
+|与录入表单的关系|确认填入与手工敲键走**同一个** `score()`，因此同样置 `dirty`，同样需要点「暂存」才落库；三种录入方式没有优先级差别，也没有"导入即提交"的旁路|
+|与前端的其它入口一致吗？|一致。权限条件、按钮可见性、提交链路与手工录入完全相同（`isTeacher && can('ENTRY') && !submitted`），因此这两个入口**不引入新的权限点**|
 |与安全设计的衔接|不上传（图片只经 `createObjectURL` 在本页读取，`finally` 里 `revokeObjectURL`；每个候选的 worker 在 `finally` 里 `terminate()`）；需人工确认（预览组件只改本地副本，`confirm` 才回传）；最终仍走统一事务与审计（`/grades/save` → `DataService` 的 `Mutation` → 审计发件箱 → 账本与链锚定）。威胁表里的对应条目见 [security.md](security.md)|
+|受数据库加密影响吗？|不受。整库加密在 JDBC 连接层，识别与语音根本不接触数据库，仍然只通过 `POST /grades/save` 走既有的统一事务|
 
 与既有设计的两个衔接点值得单独说明：
 

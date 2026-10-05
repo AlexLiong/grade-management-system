@@ -60,7 +60,11 @@ classDiagram
 ```mermaid
 classDiagram
     class ApiException["ApiException"]
+    class ConfigEnvironmentPostProcessor["ConfigEnvironmentPostProcessor"]
+    class ConfigGuard["ConfigGuard"]
     class Crypto["Crypto"]
+    class DatabaseBootstrap["DatabaseBootstrap"]
+    class DbCredentials["DbCredentials"]
     class ErrorAdvice["ErrorAdvice"]
     class InternalSecurity["InternalSecurity"]
     class Protocol["Protocol"]
@@ -98,6 +102,7 @@ classDiagram
 classDiagram
     class DataApplication["DataApplication"]
     class DataRpcController["DataRpcController"]
+    class DataSourceConfig["DataSourceConfig"]
     class DemoInitializer["DemoInitializer"]
     class DemoInitializer_Org["DemoInitializer.Org"]
     <<record>> DemoInitializer_Org

@@ -95,6 +95,14 @@
 36. **传输加密与临时存储即销毁**：本轮新增的链路没有"传输"也没有"临时存储服务端副本"——图片只存在于页面内存与 blob URL 中，用完立即 `revokeObjectURL`；识别每个变体时创建的 tesseract worker 在 `finally` 里 `terminate()`。既有的 HTTPS 统一入口、Cookie/CSRF 与网关鉴权规则不变。**语音通道是唯一例外**：浏览器厂商的语音识别可能把音频送到厂商服务，界面要求教师点击「开始识别」逐次确认（不会自动开麦），原先那条固定隐私提示已按用户要求删除；成绩数据本身仍只在本页表单中处理。
 37. **安全审计不受影响**：识别与语音都不直接写库（没有"导入即提交"的路径），确认填入后仍需点「暂存」触发 `POST /grades/save`，提交走 `POST /grades/transition`；因此审计动作、版本 CAS、补考规则与账本锚定全部沿用既有实现。可以验证的界面事实是「识别后表单尚未变化（需人工确认）」（实测 `69 → 69`）与「未匹配行默认不勾选（跳过）」（实测 `skipped=3/5`）。
 
+## 安全需求解释（数据库持久存储安全与密钥管理）
+
+本节把课程要求里两条分散在不同页码的安全约束落成可验收的工程需求，编号接在既有序列之后（第 38–39 条）：原文第 17 页「避免常见安全坑」明确写着**禁止硬编码密钥 / 密码**；第 19 页「（6）数据库持久存储安全」要求访问权限控制、成绩隐私（可结合加密实现）与操作权限控制。此前的实现满足了一部分（登录口令 BCrypt、成绩字段 AES-GCM、独立加密账本），但**密钥本身仍是写在 `application.yml` 里的字面量**（`GATEWAY_KEY: ${GATEWAY_KEY:KEY}`、`TLS_PASSWORD` 固定为 `campus-dev-tls-2024`），数据库文件也还是明文 H2 库——即文件被拷走时全部账号、密码哈希与选课成绩可读。本节的两条需求就是补上这两处缺口。
+
+38. **数据库整库加密（静态加密）**：数据服务的默认 JDBC URL 开启 H2 的 `CIPHER=AES`，**整个库文件**是密文，而不是只加密若干敏感列。H2 在 `CIPHER=AES` 下的会话口令是「**文件口令 + 空格 + 用户口令**」两段式（H2 规定文件口令放在口令字段中、位于用户口令之前，用一个空格分隔，文件口令自身不得含空格）：文件口令用于加密整库，用户口令用于 `sa` 账号认证，两段都由 CSPRNG 随机生成、互不相同、不写进任何提交到版本库的文件。**整库加密口令是文件级/进程级的，与用户登录密码无关**——演示账号的登录密码仍然是 `passwd`，没有变化。开启加密后，H2 打不开此前生成的明文库文件（报 `File corrupted while reading record`），因此启动时按文件头识别并清理旧明文库（加密库 `H2encrypt`、明文库 `H2:`），在 Spring 之前完成，避免把「库格式不匹配」暴露成难以定位的连接异常。
+
+39. **认证密钥与口令动态生成、集中注入、缺失即失败**：全部 9 项密钥（`GATEWAY_KEY`、`BUSINESS_KEY`、`DATA_KEY`、`AUDIT_KEY`、`LEDGER_KEY`、`AUDIT_DATA_KEY`、`TLS_PASSWORD`、`DB_PASSWORD`、`DB_CIPHER_KEY`）由 `scripts/setup.mjs` 用 `crypto.randomBytes(32)` 生成并写入 `.runtime/secrets.json`（0600、被 `.gitignore` 忽略）；`application.yml` 里一律是空占位 `${VAR:}`，`chain-worker` 的 `LEDGER_KEY`/`AUDIT_KEY` 也从环境变量或密钥文件读取并在缺失时直接退出。注入优先级为**环境变量 > `-D` 启动参数 > `.runtime/secrets.json`**，注入点在四个主类 `main` 第一行的 `DatabaseBootstrap.prepare()` 与配置绑定之前的 `ConfigEnvironmentPostProcessor`，因此 IDEA 里直接跑主类也能起来。生产档（`CAMPUS_PROFILE=prod` 或 `-Dcampus.profile=prod`）下缺密钥、仍是占位值（`KEY`/`passwd`/`password`/`changeme`/`campus-dev-tls-2024`）或长度 < 16 就**拒绝启动**并打印缺失清单。密钥轮换会改变 `schema_meta` 里的密钥指纹并触发整库重建——这是「旧密文解不开」的显式后果，不是静默降级。
+
 ## 功能追踪矩阵
 
 |编号|原文要求 / 页码|实现位置|验证|
@@ -154,6 +162,8 @@
 |F53|**学号安全匹配：不能被已知混淆解释的差异不自动认人**，第七轮|`ocr.js` 的 `correctId`（`confusionHits === 0` 时返回 `{username: null, unverified: true, candidate}`；`allowDigitCorrection` 只放行"仅一位数字"的差异；同距离同解释力时标 `ambiguous` + `alternatives`）、`confusionHits`、`compact`、`mapColumns` 的四条学号文案、`App.vue` 的 `ALLOW_DIGIT_CORRECTION`|`scripts/ocr-voice-unit.mjs` 的 4 条断言：「数字位差异不被自动认人」（`correctId("20231539", ["20231530","20241530"])` 的 `username === null`）、「数字位差异标记为待人工确认」（`unverified === true`）、「无法确认的学号不写入任何学生」（`structureRows` 后 `matched === false`）、「无法确认的学号给出人工核对提示」（`issues` 含「人工核对」）；另有「精确匹配优先于编辑距离为 1 的其它学号」「多候选同距离时优先混淆能解释的」。证据 `.runtime/logs/ocr-voice-unit.json`（`total = 76`、`passed = 76`）|
 |F54|**语音录入可切换录入对象**（「录入对象」下拉框 / 上一行下一行按钮 / 成绩表行内麦克风按钮），第七轮|`VoicePanel.vue` 的 `rows` prop 与 `select-target` emit、`stepRow`/`gotoRow`/`rowKey`（`stepRow` 夹取到 `[0, rows.length - 1]`、不循环）、`App.vue` 的 `openVoice(row)` 与 `:rows="rows"` + `@select-target="voiceTargetRow = $event"`|单元 76 项不再含导航口令（`ocr-voice-unit.json`，`total = 76`、`passed = 76`）；浏览器 40 项含 4 条切行断言（下拉框列全部 / 下拉框选中 / 上一行 / 下一行）：「下一行」按钮（`20241530 → 20241531`）、「上一行」按钮（`20241531 → 20241530`）、下拉框列出全部学生（`options=9 rows=9`）、下拉框直接选中（`20241532 → 20241532`）（`ocr-voice-check.json`，`total = 40`、`passed = 40`）|
 |F55|**图片识别的输入格式兼容**（深色截图自动反色 + 小字号多尺度回退 + 明确的版式边界），第七轮|`ocr.js` 的 `invertIfDark`（被 `loadCanvas` 调用，判据"平均灰度 < 110 且暗像素占比 > 55%"）、`recognizeBest` 的 `scaleSteps`（默认 `[2, 3, 1.5]`）与 `buildVariants` 的 `scale`（先放大再纠偏）、`App.vue` 识别弹窗的 `.ocr-tips` 版式提示与 10 MB 上限|本轮 8 种输入的对照实验：基准 3/3、14px 小字 3/3、11px 极小字 2/3（中间行 `80→8` 丢位）、中文表头 3/3、深色截图**修复后** 3/3（修复前仅 2 行且缺列）、表格线很浅 3/3、倾斜 3° 修复后 3/3、透视 3/3 基本对；固定图集侧深色/小字相关结论见 `ocr-voice-check.json` 的 `accuracy[]` 与 [ocr-voice-design.md](ocr-voice-design.md) 4.1.1、4.1.2、4.12|
+|F56|**数据库整库加密（H2 `CIPHER=AES`）**：库文件整体为密文，会话口令为「文件口令 + 空格 + 用户口令」两段式，两段均由 CSPRNG 生成|`DbCredentials.url()`（默认 `jdbc:h2:file:./.runtime/database/campus;CIPHER=AES;AUTO_SERVER=TRUE`）、`DbCredentials.password()`、`ConfigGuard.databasePassword()`、`data-service/.../DataSourceConfig.dataSource()`、`SchemaCatalog.dropLegacyPlaintextDatabase()`、`DatabaseBootstrap.prepare()`（反射调用前者）、`scripts/setup.mjs` 的 `DB_CIPHER_KEY`/`DB_PASSWORD`|库文件头为 `H2encrypt`；在库文件里检索 `password`/`$2a$`/`李老师`/`t1101`/`CS401`/`20241530`/`course_selections` 命中数**全部为 0**；正确两段式口令可打开（`users` 205 行）；只给单段报 `Wrong password format, must be: file password <space> user password [90050-224]`；文件口令错报 `Encryption error in file ... [90049-224]`；明文库被自动识别清理。证据见 [testing.md](testing.md) 8.3–8.4|
+|F57|**认证密钥与口令动态化**：不再有硬编码 `KEY`、不再有固定 `campus-dev-tls-2024`；9 项密钥随机生成到 `.runtime/secrets.json`，按「环境变量 > `-D` > 密钥文件」注入；生产档缺密钥/占位值/长度不足即拒绝启动；密钥指纹落库用于识别轮换|`scripts/setup.mjs` 的 `SECRET_KEYS` 与 `crypto.randomBytes(32)`、`ConfigGuard`（`REQUIRED_KEYS`/`load`/`secret`/`dataFingerprint`/`acceptableInProduction`/`secretsFile`）、`DatabaseBootstrap.prepare()`、`ConfigEnvironmentPostProcessor` + `common/src/main/resources/META-INF/spring.factories`、`common/.../DbCredentials.describePassword()`、`common/.../RpcClient`（信任库口令取密钥表）、`chain-worker/server.mjs` 的 `loadSecrets()`、`scripts/start.ps1` / `start.sh` 的注入、`common` 的 `ConfigGuardTest`（7 条）与 `data-service` 的 `SchemaCatalogTest.rebuildsWhenSecretsFingerprintChanges`|`mvn -o test` 258 项全绿（`ConfigGuardTest` 断言密钥清单为 9 项、随机密钥为 64 位十六进制且不重复、指纹稳定且对任一密钥敏感且不泄漏密钥、生产档拒绝 `KEY`/`passwd`/`campus-dev-tls-2024`/长度不足、密钥文件路径可覆盖、两段式口令恰有一个空格）；`secrets.json` 实测 9 项且全部匹配 `[0-9a-f]{64}`；`chain-worker` 缺密钥直接退出；`.logs/jvm.args` 里 9 项 `-D` 与带引号的两段式 `-DDB_PASSWORD` 可直接核对。证据见 [testing.md](testing.md) 8.2、8.4|
 |A01|均值±3σ、百分位、波动，8|`AnalyticsService.anomalies`|异常规则及管理员可见事件|
 |A02|线性回归，8–10|Weka `LinearRegression`|三年校验、留后一年验证、RMSE|
 |A03|决策树/树结构，9|Weka `REPTree`|树模型实际训练及文本输出|
@@ -167,6 +177,8 @@
 |A11|浏览器语音接入与降级，第七轮|`voice.js` 的 `speechSupport`/`createVoiceSession`（`lang=zh-CN`、`continuous`、`interimResults`、`maxAlternatives=1`）、`VoicePanel.vue` 的双通道与错误映射|浏览器层用 `SpeechRecognition` 桩验证「点击开始识别调用 `start`」与「识别回调文本进入解析」；不支持时渲染 `voice-unsupported` 并提示改用文本框（解析逻辑完全相同）|
 |A12|学号安全匹配（不可解释的差异不自动认人），第七轮|`ocr.js` 的 `correctId`/`confusionHits` 与 `mapColumns` 的 `unverified`/`ambiguous` 分支，`App.vue` 的 `ALLOW_DIGIT_CORRECTION`|`scripts/ocr-voice-unit.mjs`：「数字位差异不被自动认人」「数字位差异标记为待人工确认」「无法确认的学号不写入任何学生」「无法确认的学号给出人工核对提示」；证据 `.runtime/logs/ocr-voice-unit.json`（76/76）。设计规则见 [ocr-voice-design.md](ocr-voice-design.md) 4.9|
 |A14|深色背景自动反色，第七轮|`ocr.js` 的 `invertIfDark`（`loadCanvas` 内调用）|判据"平均灰度 < 110 且暗像素占比 > 55%"；本轮对照实验里暗色主题截图修复前只能认出 2 行且缺列，反色后 3/3 行全对（见 [ocr-voice-design.md](ocr-voice-design.md) 4.1.1 与 4.12）|
+|A15|**数据库持久存储安全：整库静态加密**（原文 19 页「数据安全，成绩的隐私」）|H2 `CIPHER=AES` + `DataSourceConfig` 显式装配 + `DbCredentials` 的两段式口令 + `SchemaCatalog.dropLegacyPlaintextDatabase`|① 库文件头 `H2encrypt`；② 文件中检索用户名/课程代码/学号/BCrypt 前缀/表名均 0 命中；③ 正确两段式口令可打开且 `users` 表 205 行；④ 单段口令报 90050、文件口令错报 90049；⑤ 旧明文库被自动清理后以加密库重建（见 [testing.md](testing.md) 8.3、8.4）|
+|A16|**禁止硬编码密钥 / 密码（原文 17 页）**：密钥全部动态生成并注入，生产档强校验|`scripts/setup.mjs`、`ConfigGuard`、`DatabaseBootstrap`、`ConfigEnvironmentPostProcessor`、`RpcClient`、`chain-worker/server.mjs`、`scripts/start.ps1` / `start.sh`|① `ConfigGuardTest` 7 条全绿（清单/随机性/长度/指纹/生产档判据/路径覆盖/两段式契约）；② 源码与 `application.yml` 里检索不到真实密钥，只有空占位；③ 生产档缺密钥或占位值拒绝启动并打印缺失清单；④ `.runtime/secrets.json` 为 9 项 64 位十六进制且被 `.gitignore` 忽略；⑤ 密钥指纹不一致时整库重建（`SchemaCatalogTest.rebuildsWhenSecretsFingerprintChanges`）；⑥ `chain-worker` 缺密钥直接退出（见 [testing.md](testing.md) 8.2、8.4、8.5）|
 |R01|HTTPS 统一入口、统一收集，11|`GatewayController`, `ApiController`|全部 `/api` 经网关处理|
 |R02|对象值传递/命名约定，11|`Protocol`, `RemoteRepository`|JSON 查询/操纵对象，主键与普通字段分离|
 |R03|SelectInterface 二维字符串数组，12|`DataRpcController.select`|签名远程查询，`String[][]`|
@@ -175,9 +187,10 @@
 |R06|数据库配置自适应，12|`DataApplication`, `SchemaCatalog`|H2 实测；其余待目标环境回归|
 |S01|密码哈希、HTTPS、接口权限，18|BCrypt、TLS、认证/权限服务|登录、锁定、RBAC、课程归属|
 |S02|SQL 注入、XSS，18|参数绑定、Vue 转义、CSP|恶意标识符、值注入、XSS 浏览器检查|
-|S03|加密存储和完整性，19|H2 AES + AES-GCM + 独立账本|密文绑定身份状态版本、恢复证据|
+|S03|加密存储和完整性，19|H2 整库 AES + 字段级 AES-GCM + 独立账本（细节见 F56/F57）|密文绑定身份状态版本、恢复证据、库文件里搜不到明文|
 |S04|多管理员或签，19|任何启用且持 `GRADE_ADMIN` 的管理员可审批撤销|第二管理员授权、撤销流程|
 |S05|网络分区/应急/审计，14–18|默认回环地址、部署和安全文档|端口与权限配置、异常拒绝写入|
+|S06|禁止硬编码密钥 / 密码，17|`setup.mjs` 随机生成 9 项密钥 → `.runtime/secrets.json` → 环境变量 / `-D` 注入；生产档拒绝启动（细节见 F57、A16）|源码与 yml 里没有真实密钥；生产档缺密钥或占位值启动失败；`chain-worker` 缺密钥退出|
 
 ## 非功能要求
 
@@ -185,6 +198,9 @@
 - 网关维护 20 秒租约，服务每 5 秒心跳，多业务实例轮询，数据库会话共享。只读请求可由客户端刷新重试，写操作不做透明自动重试。
 - 同一教学班的版本号保护跨实例写入，成绩行版本额外保护批量写入。
 - 生产必须使用数据库权限、服务账号隔离、外部密钥管理和可信证书；本机统一 `.runtime` 是教学便利措施。
+- 密钥与口令**没有默认值**：`application.yml` 里只有空占位 `${VAR:}`，唯一保留的字面量是 `server.ssl.key-store-password` 的开发证书兜底值 `campus-dev-tls-2024`，它只在 `TLS_PASSWORD` 完全缺失且非生产档时生效，且被 `ConfigGuard` 列为生产档的占位值（出现即拒绝启动）。占位值与长度 < 16 的判据**只在生产档生效**；开发档下手工注入的短值会被原样采用，因此手工注入示例都用 64 位十六进制。单元测试不需要密钥文件（用 H2 内存库），运行全套服务必须先执行 `node scripts/setup.mjs`。
+- **密钥轮换等于整库重建**：`schema_meta.version_value` 存的是「结构版本:密钥指纹」，任一密钥变化即触发整库重建，因为成绩 payload、审计发件箱与账本区块都用当时那组密钥加密、换了就解不开。轮换前必须备份 `.runtime/database/`，并按部署文档处理账本、锚点与链数据（见 F57、[configuration.md](configuration.md) 3.3.5）。
+- 数据库静态加密的信任边界要写清：它保护**静态文件**（拷走 `.mv.db`、备份卷或磁盘镜像的人读不到明文），不保护运行中的进程；库文件与 `secrets.json` 同机可读时，拥有本机管理员权限的攻击者仍可解密。H2 的 AES 实现是 AES-128。
 - H2 文件数据库不能被多个独立数据服务同时打开；水平扩容数据服务需迁移共享事务数据库并完成部署章节的并发回归。
 - 不声称任意规模下“绝对无误”；测试结论以报告中的实际执行证据和边界为准。
 - 组织与选课的请求体同时接受编号与名称，服务端统一归一化成编号；前端不拼接、不推断内部编号，避免出现第二份组织真相。

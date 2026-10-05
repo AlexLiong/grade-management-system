@@ -1,6 +1,6 @@
 # HTTP API 与远程命名约定
 
-> 更新时间：2026-09-13
+> 更新时间：本轮（动态密钥与整库加密）。**接口清单与字段约定未变**：本次改动只影响配置注入与数据库文件层的加密，没有新增、删除或修改任何 HTTP 接口。
 
 浏览器基址 `https://localhost:8443/api`，UTF-8 JSON。除登录外，所有接口需要会话 Cookie；所有 POST 还需 `X-CSRF-Token`。API 对不允许的角色返回 403，对会话缺失/过期返回 401。公开入口不接受 table、SQL 或任意调用服务 URL。
 
@@ -11,12 +11,14 @@
 | 模块 | 职责 | 端口（默认） |
 |------|------|-------------|
 | `gateway` | HTTPS 统一入口、服务注册发现、静态页面 | 8443 |
-| `business-service` | 认证、权限、课程成绩流程、统计分析 | 9442（内部） |
-| `data-service` | SQL 编译、参数绑定、事务、成绩加密、审计发件箱 | 9443（内部） |
-| `audit-service` | 独立加密账本、哈希链、EVM 锚定 | 9444（内部） |
-| `chain-worker` | Ganache EVM 测试链、LSTM 推理 | 9445（内部） |
+| `business-service` | 认证、权限、课程成绩流程、统计分析 | 9441（内部） |
+| `data-service` | SQL 编译、参数绑定、事务、成绩加密、审计发件箱、整库加密数据源 | 9442（内部） |
+| `audit-service` | 独立加密账本、哈希链、EVM 锚定 | 9443（内部） |
+| `chain-worker` | Ganache EVM 测试链、LSTM 推理 | 9545（内部） |
 
 网关只接受 GET/POST，业务路径 `/api/*` 转发至 business-service 的 `/internal/api`。各服务间通过 HMAC 签名 + 时间窗 + Nonce 认证。
+
+**整库加密对接口透明**：数据服务的 H2 库现在以 `CIPHER=AES` 整库加密（会话口令是「文件口令 + 空格 + 用户口令」两段式，见 [配置说明](configuration.md#331-数据库整库加密h2-cipheraes)），但**没有任何 HTTP 接口因此新增、删除或改变请求/响应形状**：加密发生在 JDBC 连接层与文件层，网关、业务服务与浏览器都感知不到；接口清单与字段约定与之前完全一致。
 
 ---
 
@@ -1079,10 +1081,10 @@ GET /api/selections/records?publishId=0f2c&courseId=net-2026&studentId=20241530&
 ### 4.3 服务注册与发现（Gateway）
 ```json
 // 注册
-{"service": "business", "instance": "inst-1", "url": "https://localhost:9442"}
+{"service": "business", "instance": "inst-1", "url": "https://localhost:9441"}
 
 // 发现
-{"service": "business"} → {"url": "https://localhost:9442"}
+{"service": "business"} → {"url": "https://localhost:9441"}
 ```
 
 ### 4.4 白名单表与字段（含本轮新增）
@@ -1136,6 +1138,8 @@ abc123
 ```
 
 时间窗 30 秒，Nonce 60 秒内去重。
+
+**签名密钥来自动态密钥表，不是常量**：`RpcClient` 用 `Settings.get(caller.toUpperCase() + "_KEY")`（即 `X-Service` 的大写形态加 `_KEY`）取密钥，例如调用方 `business` 用 `BUSINESS_KEY`、`data` 用 `DATA_KEY`、`audit` 用 `AUDIT_KEY`、`gateway` 用 `GATEWAY_KEY`；服务间 HTTPS 的信任库口令则来自 `ConfigGuard.secret("TLS_PASSWORD")`。这四项由 `scripts/setup.mjs` 随机生成并注入（环境变量 / `-D` / `.runtime/secrets.json`），源码与 `application.yml` 里只有空占位 —— 因此**不存在可以写进配置文件里的固定密钥**，多实例部署时所有副本必须使用同一份密钥表。整库加密（`DB_CIPHER_KEY` / `DB_PASSWORD`）与这一层签名无关，也不改变任何请求头或请求体。
 
 ---
 

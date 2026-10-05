@@ -687,6 +687,53 @@
     ]
   },
   {
+    "name": "ConfigEnvironmentPostProcessor",
+    "package": "edu.campus.common",
+    "kind": "CLASS",
+    "file": "common/src/main/java/edu/campus/common/ConfigEnvironmentPostProcessor.java",
+    "fields": [],
+    "methods": [
+      "postProcessEnvironment(ConfigurableEnvironment,SpringApplication) : void",
+      "getOrder() : int",
+      "firstNonBlank(String[]) : String"
+    ]
+  },
+  {
+    "name": "ConfigGuard",
+    "package": "edu.campus.common",
+    "kind": "CLASS",
+    "file": "common/src/main/java/edu/campus/common/ConfigGuard.java",
+    "fields": [
+      "REQUIRED_KEYS : java.util.List<java.lang.String>",
+      "DEV_TLS_FALLBACK : String",
+      "PLACEHOLDERS : java.util.Set<java.lang.String>",
+      "MIN_LENGTH : int",
+      "RANDOM : java.security.SecureRandom",
+      "secrets : java.util.Map<java.lang.String,java.lang.String>",
+      "production : boolean",
+      "generatedNow : boolean"
+    ],
+    "methods": [
+      "secretsFile() : java.nio.file.Path",
+      "production() : boolean",
+      "load() : java.util.Map<java.lang.String,java.lang.String>",
+      "secret(String) : String",
+      "databasePassword() : String",
+      "dataFingerprint() : String",
+      "fingerprint(java.util.Map<java.lang.String,java.lang.String>) : String",
+      "generatedNow() : boolean",
+      "randomKey() : String",
+      "acceptableInProduction(String) : boolean",
+      "isLoaded() : boolean",
+      "reject(java.util.List<java.lang.String>,java.util.List<java.lang.String>) : void",
+      "readSecretsFile() : java.util.Map<java.lang.String,java.lang.String>",
+      "writeSecretsFile(java.util.Map<java.lang.String,java.lang.String>) : void",
+      "restrictPermissions(java.nio.file.Path) : void",
+      "random() : String",
+      "firstNonBlank(String[]) : String"
+    ]
+  },
+  {
     "name": "Crypto",
     "package": "edu.campus.common",
     "kind": "CLASS",
@@ -705,6 +752,36 @@
       "encrypt(String,String,String) : String",
       "decrypt(String,String,String) : String",
       "deriveKey(String,byte[]) : javax.crypto.spec.SecretKeySpec"
+    ]
+  },
+  {
+    "name": "DatabaseBootstrap",
+    "package": "edu.campus.common",
+    "kind": "CLASS",
+    "file": "common/src/main/java/edu/campus/common/DatabaseBootstrap.java",
+    "fields": [
+      "prepared : boolean"
+    ],
+    "methods": [
+      "prepare() : void",
+      "jdbcUrl() : String",
+      "dropLegacyPlaintextDatabase(String) : boolean"
+    ]
+  },
+  {
+    "name": "DbCredentials",
+    "package": "edu.campus.common",
+    "kind": "CLASS",
+    "file": "common/src/main/java/edu/campus/common/DbCredentials.java",
+    "fields": [],
+    "methods": [
+      "password() : String",
+      "describePassword() : String",
+      "trimToNull(String) : String",
+      "username() : String",
+      "url() : String",
+      "firstNonBlank(String[]) : String",
+      "cipherParts() : java.util.List<java.lang.String>"
     ]
   },
   {
@@ -957,6 +1034,17 @@
       "select(edu.campus.common.Protocol.Selection) : String[][]",
       "manipulate(edu.campus.common.Protocol.Mutation) : boolean",
       "status() : java.util.Map<java.lang.String,java.lang.Object>"
+    ]
+  },
+  {
+    "name": "DataSourceConfig",
+    "package": "edu.campus.data",
+    "kind": "CLASS",
+    "file": "data-service/src/main/java/edu/campus/data/DataSourceConfig.java",
+    "fields": [],
+    "methods": [
+      "dataSource() : javax.sql.DataSource",
+      "dataSourceProperties() : DataSourceProperties"
     ]
   },
   {
@@ -1230,8 +1318,12 @@
       "init() : void",
       "wasRebuilt() : boolean",
       "hasBusinessRows() : boolean",
-      "structureVersion() : int",
+      "structureMarker() : String",
+      "storedMarker() : String",
       "writeStructureVersion() : void",
+      "localStorageMarker(String) : void",
+      "describeMarker(String) : String",
+      "dropLegacyPlaintextDatabase(String) : boolean",
       "dropAll() : void",
       "drop(String) : void",
       "tableExists(String) : boolean",
