@@ -1,0 +1,4 @@
+# 在配置绑定之前注入密钥与数据源凭据（含 H2 整库加密的两段式口令）。
+# 见 common/src/main/java/edu/campus/common/ConfigEnvironmentPostProcessor.java
+org.springframework.boot.env.EnvironmentPostProcessor=\
+edu.campus.common.ConfigEnvironmentPostProcessor

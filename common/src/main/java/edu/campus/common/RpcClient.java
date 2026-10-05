@@ -25,7 +25,9 @@ public class RpcClient {
             if (java.nio.file.Files.exists(truststorePath)) {
                 try (var is = java.nio.file.Files.newInputStream(truststorePath)) {
                     KeyStore ks = KeyStore.getInstance("PKCS12");
-                    ks.load(is, "campus-dev-tls-2024".toCharArray());
+                    // 口令来自动态生成的密钥表（而不是写死在代码里）；信任库本身是开发证书，
+                    // 生产部署应换成组织 CA 并同样从密钥管理注入。
+                    ks.load(is, ConfigGuard.secret("TLS_PASSWORD").toCharArray());
                     tmf.init(ks);
                 }
             } else {
