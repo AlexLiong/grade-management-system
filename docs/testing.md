@@ -1,6 +1,6 @@
 # 测试报告与验证证据
 
-本报告依据实际运行输出生成，不把尚未执行的平台或安全扫描写成通过。各轮（第一轮「组织管理与网上选课」、第二轮「8 条修正」、第三轮「侧栏拖动 + 编号回归主键 `id`」、第四轮「重修语义」、第五轮「学业记录重修状态 + 学业预警可用」、第六轮「初始化数据重建 + 启动清理 + 性能优化」、第七轮「成绩录入辅助：本地 OCR + 语音录入」、第八轮「整库加密与动态密钥」）的原始证据都保存在 `.runtime/logs/`（`junit-summary.json`、`feature-test.json`、`browser-check.json`、`sidebar-resize-check.json`、`ocr-voice-unit.json`、`ocr-voice-check.json`）、各模块 `target/surefire-reports/` 与 `test-results/browser/`（界面截图）；原始交付的摘要记录在 `docs/evidence/`（该目录在当前源码树中不存在，见「复现顺序」说明）。**本文档以第八轮冻结修订上的实测结果为当前值（258 / 201 / 57 / 28 / 76 / 40），前七轮的旧数字只在各自的小节里作历史对照。**
+本报告依据实际运行输出生成，不把尚未执行的平台或安全扫描写成通过。各轮（第一轮「组织管理与网上选课」、第二轮「8 条修正」、第三轮「侧栏拖动 + 编号回归主键 `id`」、第四轮「重修语义」、第五轮「学业记录重修状态 + 学业预警可用」、第六轮「初始化数据重建 + 启动清理 + 性能优化」、第七轮「成绩录入辅助：本地 OCR + 语音录入」、第八轮「整库加密与动态密钥」、第九轮「新建课程开设院系缺陷修复」）的原始证据都保存在 `.runtime/logs/`（`junit-summary.json`、`feature-test.json`、`browser-check.json`、`sidebar-resize-check.json`、`ocr-voice-unit.json`、`ocr-voice-check.json`）、各模块 `target/surefire-reports/` 与 `test-results/browser/`（界面截图）；原始交付的摘要记录在 `docs/evidence/`（该目录在当前源码树中不存在，见「复现顺序」说明）。**本文档以第八轮冻结修订上的实测结果为当前值（258 / 201 / 57 / 28 / 76 / 40），前七轮的旧数字只在各自的小节里作历史对照。**
 
 ## 环境
 
@@ -446,6 +446,34 @@ C:\Users\AlexLiong\.m2\wrapper\dists\apache-maven-3.9.16-bin\5grr65jo27hi51sujmt
 - **业务规则没变**：business-service 的 195 条用例一条未改且全绿。
 - **测试残留清理逻辑没变**：`feature-test.mjs` 仍会在 `2027-2` 留下测试课程与批次，跑完**重启一次服务**由 `DemoInitializer.purgeTestArtifacts()` 清掉（**不需要** `-ResetDb`）；这一条在第八轮同样适用，因为本轮没有新增课程/批次的删除接口。
 
+### 8.7 新建课程的「开设院系」（缺陷修复，10 条断言）
+
+**发现的缺陷**：管理员在「选课管理 → 课程与选课」点「新建课程」，对话框只有课程名称、代码、学年学期、学分、授课教师五项，**没有填写「开设院系」的地方**；而后端 `CourseService.saveCourse` 要求 `collegeId` 非空，于是保存必然报「必须指定开设院系」——新建课程这条路完全走不通。
+
+**修复**（`frontend/src/App.vue`）：课程对话框新增「开设院系」下拉（`data-testid="course-college"`），选项来自 `GET /organizations/options` 的 `colleges`：
+
+- **默认值**：随「授课教师」自动带出该教师所在院系。课程列表与教师列表只给了 `collegeName`，而保存需要组织编号，因此前端做一次名称→编号换算（`collegeIdByName`）。
+- **管理员可改**：一旦人工改选（`collegeTouched` 置位），后续换教师不再覆盖人工选择。
+- **前置条件**：课程对话框依赖组织选项，`loadSelectionCourses()` 补了 `loadOrganizations()`，否则下拉是空的。
+- **兜底**：保存前若仍为空，再按教师带出一次，避免把「未指定」提交上去。
+
+**回归脚本** `node scripts/course-college-check.mjs`（需四个服务与 Vite 已启动；在真实浏览器里跑）：
+
+| 断言 | 结果 |
+|---|---|
+| 「开设院系」控件存在 | PASS |
+| 下拉列出全部院系（实测 信息工程学院 / 经济与管理学院 / 建筑工程学院 / 外国语学院） | PASS |
+| 选教师后自动带出院系（陈老师 · 信息工程学院 → C01001） | PASS |
+| 带出的院系与教师所在院系一致 | PASS |
+| 人工改选后不被教师所在院系覆盖（选经济与管理学院 → 换教师后仍为 C02001） | PASS |
+| 课程已落库（原来会 400 必须指定开设院系） | PASS |
+| 对话框已关闭 | PASS |
+| 保存的开设院系与表单所选一致（表单 C02001 → 落库 C02001 经济与管理学院） | PASS |
+| 没有出现「必须指定开设院系」 | PASS |
+| 无致命控制台错误 | PASS |
+
+**注意**：系统没有课程删除接口，该脚本会新建一门 `QAxxxxxx` 测试课程，按仓库约定**重启一次 data-service** 即被 `DemoInitializer.purgeTestArtifacts()` 清掉（脚本结尾也会打印这条提示）。复跑 `browser-check.mjs` 57/57、`verify-sidebar-resize.mjs` 28/28，均无新增失败（侧栏脚本首次运行出现过 1 次拖动断言偶发失败，复跑即 28/28，与本次改动无关）。
+
 
 ## api · 2026-09-08T16:40:00.312Z
 
@@ -805,7 +833,7 @@ node scripts/scale-test.mjs
 npm --prefix frontend run test:e2e
 ```
 
-> 需要说明的是：当前源码树的 `scripts/` 目录包含 `browser-check.mjs`、`capture-selection.mjs`、`feature-test.mjs`、`generate-docs.mjs`、`generate-ocr-fixtures.mjs`（第七轮）、`junit-summary.mjs`、`ocr-voice-check.mjs`（第七轮）、`ocr-voice-unit.mjs`（第七轮）、`SourceInventory.java`、`setup.mjs`、`start.sh`、`start.ps1` 与 `verify-sidebar-resize.mjs`。上面第二段里的 `api-test.mjs`、`workflow-test.mjs`、`tamper-test.mjs`、`scale-test.mjs` 在本次交付的源码树中**不存在**，`docs/evidence/` 目录也不存在；`npm --prefix frontend run test:e2e` 所需的 Playwright 用例亦未随源码提供（浏览器验证由 `scripts/browser-check.mjs` 与 `scripts/ocr-voice-check.mjs` 承担，截图在 `test-results/browser/`）。因此当前的验证证据以 `mvn -o test` 的 surefire 报告、`.runtime/logs/` 下的六份 JSON（`feature-test`、`browser-check`、`ocr-voice-unit`、`ocr-voice-check`、`sidebar-resize-check`、`junit-summary`）与本文 8.3 的加密实证为准；第二段描述的是历史回归流程，不是本次实际执行的命令清单。
+> 需要说明的是：当前源码树的 `scripts/` 目录包含 `browser-check.mjs`、`capture-selection.mjs`、`feature-test.mjs`、`generate-docs.mjs`、`course-college-check.mjs`（第九轮）、`generate-ocr-fixtures.mjs`（第七轮）、`junit-summary.mjs`、`ocr-voice-check.mjs`（第七轮）、`ocr-voice-unit.mjs`（第七轮）、`SourceInventory.java`、`setup.mjs`、`start.sh`、`start.ps1` 与 `verify-sidebar-resize.mjs`。上面第二段里的 `api-test.mjs`、`workflow-test.mjs`、`tamper-test.mjs`、`scale-test.mjs` 在本次交付的源码树中**不存在**，`docs/evidence/` 目录也不存在；`npm --prefix frontend run test:e2e` 所需的 Playwright 用例亦未随源码提供（浏览器验证由 `scripts/browser-check.mjs` 与 `scripts/ocr-voice-check.mjs` 承担，截图在 `test-results/browser/`）。因此当前的验证证据以 `mvn -o test` 的 surefire 报告、`.runtime/logs/` 下的六份 JSON（`feature-test`、`browser-check`、`ocr-voice-unit`、`ocr-voice-check`、`sidebar-resize-check`、`junit-summary`）与本文 8.3 的加密实证为准；第二段描述的是历史回归流程，不是本次实际执行的命令清单。
 >
 > Windows 下启动服务请使用 `scripts/start.ps1`：它会读取 `.runtime/secrets.json` 把密钥同时注入为环境变量与 `-D` 启动参数，把参数写进 `.logs/jvm.args`（两段式 `-DDB_PASSWORD` 加引号，否则 JVM 的 argfile 解析器会按空白把它拆成两个参数），并以独立隐藏窗口启动各服务，脚本本身可以退出。需要整库重建时用 `-ResetDb`（等价 `-Dcampus.reset-db=true` 或 `CAMPUS_RESET_DB=true`）。
 

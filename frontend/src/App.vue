@@ -361,6 +361,20 @@ const teacherOptions = computed(() => {
     (t) => t.enabled === undefined || t.enabled === null || Number(t.enabled),
   );
 });
+/** 课程对话框里管理员是否自己挑过「开设院系」；挑过之后不再被教师所在院系覆盖。 */
+const collegeTouched = ref(false);
+/**
+ * 按院系名称查组织编号。
+ *
+ * 课程列表与教师列表都只带 `collegeName`，而保存课程要的是组织编号（后端 `resolveOwn`
+ * 只认编号），所以要在这里做一次名称→编号的换算。
+ */
+function collegeIdByName(name) {
+  const text = name === null || name === undefined ? "" : String(name).trim();
+  if (!text) return "";
+  const hit = orgOptions.value.colleges.find((c) => c.name === text);
+  return hit ? hit.id : "";
+}
 const pageName = computed(
   () => nav.value.find((n) => n.key === page.value)?.name || "账户设置",
 );
@@ -523,6 +537,8 @@ async function loadTeachers() {
 async function loadSelectionCourses() {
   await loadCourses();
   await loadTeachers();
+  // 课程归属校验要求「开设院系」，课程对话框要靠它渲染院系下拉；没有就补一次。
+  if (!orgOptions.value.colleges.length) await loadOrganizations();
   if (can("USER_ADMIN") && !users.value.length)
     users.value = (await api("/users?size=300")).items;
 }
@@ -725,15 +741,42 @@ async function saveUser() {
     users.value = (await api("/users?size=300")).items;
   }, "人员信息已保存");
 }
+/**
+ * 打开课程对话框。
+ *
+ * 「开设院系」由任课教师所在院系**自动带出**，管理员仍可改：
+ * 后端 `saveCourse` 要求 `collegeId`（或院系名称）非空，缺失会直接 400「必须指定开设院系」，
+ * 而课程列表只给了 `collegeName`，所以这里把名称回填成组织编号；
+ * 新建或原课程没有院系时留空，交给 `syncCollegeWithTeacher` 按教师带出。
+ */
 function editCourse(c) {
   courseForm.value = c
-    ? { ...c, teacherId: c.teacher_id }
-    : { code: "", name: "", term: "2026-1", teacherId: "", credits: 3 };
+    ? { ...c, teacherId: c.teacher_id, collegeId: c.college_id || collegeIdByName(c.collegeName) }
+    : { code: "", name: "", term: "2026-1", teacherId: "", credits: 3, collegeId: "" };
+  collegeTouched.value = Boolean(courseForm.value.collegeId);
   modal.value = "course";
+  // 列表可能是在组织选项加载前就拿到的，这里补一次回填
+  if (!collegeTouched.value) nextTick(syncCollegeWithTeacher);
+}
+/**
+ * 让「开设院系」跟随任课教师（教师所在院系即默认开设院系）。
+ * 管理员一旦自己选过院系（collegeTouched），就不再被覆盖。
+ */
+function syncCollegeWithTeacher() {
+  if (collegeTouched.value) return;
+  const teacher = teacherOptions.value.find((t) => t.id === courseForm.value.teacherId);
+  const collegeId = teacher ? collegeIdByName(teacher.collegeName) : null;
+  if (collegeId) courseForm.value.collegeId = collegeId;
 }
 async function saveCourse() {
   await run(async () => {
-    await api("/courses/save", courseForm.value);
+    const body = { ...courseForm.value };
+    // 后端按院系编号（或名称）解析开设院系；这里再兜一次底，避免把「未指定」提交上去
+    if (!body.collegeId && !body.college) {
+      syncCollegeWithTeacher();
+      body.collegeId = courseForm.value.collegeId;
+    }
+    await api("/courses/save", body);
     modal.value = "";
     await loadCourses();
   }, "课程已保存");
@@ -971,6 +1014,16 @@ async function print() {
   window.print();
   printing.value = false;
 }
+/**
+ * 换任课教师时同步「开设院系」：默认取该教师所在院系。
+ * 只在管理员没自己挑过院系时生效，避免覆盖人工选择。
+ */
+watch(
+  () => courseForm.value.teacherId,
+  () => {
+    if (modal.value === "course" && !collegeTouched.value) syncCollegeWithTeacher();
+  },
+);
 watch([term, search], async () => {
   if (
     !["grades", "analysis", "prediction"].includes(page.value) ||
@@ -2308,6 +2361,26 @@ onMounted(async () => {
                 v-model="courseForm.teacherId"
                 required
                 placeholder="教师编号"
+            /></label>
+            <!-- 开设院系：默认随授课教师所在院系自动带出，管理员可自行改选（留空会被后端拒绝） -->
+            <label
+              >开设院系<select
+                v-if="orgOptions.colleges.length"
+                v-model="courseForm.collegeId"
+                data-testid="course-college"
+                required
+                @change="collegeTouched = true"
+              >
+                <option value="" disabled>选择开设院系</option>
+                <option v-for="c in orgOptions.colleges" :key="c.id" :value="c.id">
+                  {{ c.name }}
+                </option></select
+              ><input
+                v-else
+                v-model="courseForm.collegeId"
+                data-testid="course-college"
+                required
+                placeholder="院系编号（如 C01001）"
             /></label>
           </div>
           <div class="modal-actions">
