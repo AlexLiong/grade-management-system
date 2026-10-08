@@ -1,6 +1,7 @@
 package edu.campus.common;
 
 import java.util.List;
+import java.util.Locale;
 
 /**
  * 数据源凭据的统一解析入口。
@@ -21,12 +22,30 @@ public final class DbCredentials {
     private DbCredentials() {
     }
 
-    /** 数据源的会话口令；开启整库加密时是「文件口令 + 空格 + 用户口令」。 */
+    /**
+     * 数据源的会话口令；开启整库加密时是「文件口令 + 空格 + 用户口令」。
+     *
+     * <p>{@code DB_PASSWORD} 被**显式**注入（环境变量或 {@code -D}）时直接采用。但要注意：
+     * {@link ConfigGuard#load()} 会把密钥文件里的**单段** {@code DB_PASSWORD} 一并写进系统属性，
+     * 那是「兜底加载」而不是运维的显式配置。若把它当成两段式直接交给 H2，驱动会报
+     * 「Wrong password format, must be: file password &lt;space&gt; user password (90050)」。
+     *
+     * <p>因此这里做一次形态归一：注入值里没有空格、而 JDBC URL 又开了 {@code CIPHER=AES} 时，
+     * 用 {@code DB_CIPHER_KEY} 补齐成两段式。这样「IDEA 直接跑主类」「脚本注入两段式」
+     * 「运维手写两段式」三种路径得到的都是同一个有效口令。
+     */
     public static String password() {
         String injected = firstNonBlank(
                 System.getenv("DB_PASSWORD"), System.getProperty("DB_PASSWORD"));
-        if (injected != null) return injected;
-        return ConfigGuard.databasePassword();
+        if (injected == null) return ConfigGuard.databasePassword();
+        if (injected.indexOf(' ') >= 0) return injected;
+        if (!cipherEnabled()) return injected;
+        return ConfigGuard.secret("DB_CIPHER_KEY") + " " + injected;
+    }
+
+    /** JDBC URL 是否开启 H2 整库加密（只有此时口令才必须是两段式）。 */
+    private static boolean cipherEnabled() {
+        return url().toUpperCase(Locale.ROOT).contains("CIPHER=AES");
     }
 
     /**
@@ -35,14 +54,22 @@ public final class DbCredentials {
      * <p>整库加密的口令必须是「文件口令 空格 用户口令」两段式：一旦中间的空格被启动参数、
      * 环境变量或 shell 吞掉，H2 会报「Wrong password format, must be: file password &lt;space&gt;
      * user password」。这条日志给出「来源 + 长度 + 空格数」，用于快速定位这类问题。
+     *
+     * <p>注意「来源」一栏：{@link ConfigGuard#load()} 兜底注入的值也表现为系统属性，因此这里
+     * 只区分环境变量 / 系统属性 / 密钥文件，遇到系统属性时写明「-D 或密钥文件注入」，避免把
+     * 兜底值误读成运维的显式 {@code -D} 配置。
      */
     public static String describePassword() {
         String envValue = trimToNull(System.getenv("DB_PASSWORD"));
         String propValue = trimToNull(System.getProperty("DB_PASSWORD"));
-        String source = envValue != null ? "环境变量" : propValue != null ? "-D 启动参数" : "密钥文件（两段式）";
+        String source =
+                envValue != null
+                        ? "环境变量"
+                        : propValue != null ? "系统属性（-D 或密钥文件注入）" : "密钥文件（两段式）";
         String value = password();
         int spaces = value.length() - value.replace(" ", "").length();
-        return source + "，长度 " + value.length() + "，空格数 " + spaces;
+        String shape = spaces > 0 ? "两段式，可开整库加密" : "单段，该库未开启整库加密";
+        return source + "，长度 " + value.length() + "，空格数 " + spaces + "，" + shape;
     }
 
     private static String trimToNull(String value) {

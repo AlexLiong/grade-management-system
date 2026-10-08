@@ -141,6 +141,21 @@ public final class ConfigGuard {
         if (!missing.isEmpty() || !weak.isEmpty()) {
             reject(missing, weak);
         }
+        // DB_PASSWORD 归一化，必须在注入系统属性与计算指纹之前完成。
+        //
+        // 背景：scripts/start.ps1（以及 start.sh）会把 H2 的两段式会话口令
+        // 「DB_CIPHER_KEY + 空格 + DB_PASSWORD」导出为**同名**环境变量 DB_PASSWORD，
+        // 而上面的解析顺序是「环境变量 > 系统属性 > 密钥文件」，于是同一份密钥会随启动方式
+        // 得到两个不同的 resolved 值。指纹是对 REQUIRED_KEYS 全体取摘要的，结果就是：
+        // 用脚本建的库，改用 IDEA 直跑主类时指纹不匹配 → SchemaCatalog 判定密钥轮换 →
+        // **整库删除重建**（数据全丢，还要重新灌演示数据）。
+        //
+        // 这里把两段式还原成单段，使 resolved 只反映密钥本身、与启动方式无关；顺带保证
+        // databasePassword() 拼出来的仍是两段（否则会拼成「文件口令 文件口令 用户口令」三段）。
+        String dbPassword = resolved.get("DB_PASSWORD");
+        String cipherKey = resolved.get("DB_CIPHER_KEY");
+        if (dbPassword != null && cipherKey != null && dbPassword.startsWith(cipherKey + " "))
+            resolved.put("DB_PASSWORD", dbPassword.substring(cipherKey.length() + 1));
         // 注入系统属性：这样即便运维只准备了密钥文件，所有进程内取用点也能拿到值。
         for (Map.Entry<String, String> e : resolved.entrySet())
             System.setProperty(e.getKey(), e.getValue());

@@ -694,8 +694,17 @@ public class DemoInitializer implements ApplicationRunner {
           "[DemoInitializer] 数据库已有 " + users + " 个账号且结构版本一致，跳过初始化。");
       return;
     }
-    if (explicitReset && !rebuilt && !empty) {
-      System.out.println("[DemoInitializer] 收到显式重建开关，删除全部业务表并重新灌入数据。");
+    // 灌库前先清空：clearAll() 会删掉全部业务表与结构标记，再由 catalog.init() 按当前定义重建。
+    //  · rebuilt：SchemaCatalog 已经整库重建过，表是刚建的空表，不必再删一次；
+    //  · explicitReset：显式要求重建，删除后重灌；
+    //  · empty（没有账号）：业务表里可能残留上一次未写完的半灌数据——初始化中途失败或被中断时
+    //    会停在「colleges 有行、users 为空」这类状态，此时直接重灌会撞主键冲突
+    //    （如 colleges 已有 C01001），报错后库再也无法自愈。先清后灌让初始化可重复执行。
+    if (!rebuilt) {
+      System.out.println(
+          explicitReset
+              ? "[DemoInitializer] 收到显式重建开关，删除全部业务表并重新灌入数据。"
+              : "[DemoInitializer] 检测到未完成的历史灌库数据，清空全部业务表后重新灌入。");
       clearAll();
     }
     System.out.println(
