@@ -70,6 +70,26 @@ npm --prefix frontend run build
 
 `secrets.json` 不存在时脚本会自动先调用 `setup.mjs`。`-ResetDb` 等价于 `-Dcampus.reset-db=true`。
 
+启动后访问 **https://localhost:8443** 即为完整系统（网关直接托管 `frontend/dist`），**不需要**另外启动前端；只有改前端代码要热更新时才用 `npm --prefix frontend run dev`（`https://127.0.0.1:5173`）。
+
+### 1.3.1 停止服务
+
+```powershell
+.\scripts\stop.ps1                 # 停止四个 Java 服务 + chain-worker
+.\scripts\stop.ps1 -KeepChain      # 只停四个 Java 服务
+.\scripts\stop.ps1 -IncludeVite    # 同时停 Vite 开发服务器（5173）
+.\scripts\stop.ps1 -List           # 只列出当前在跑的本项目进程，不停止
+```
+
+```bash
+./scripts/stop.sh                  # macOS / Linux；参数同名：--keep-chain / --include-vite / --list / --force / --wait 30
+bash scripts/stop.sh --list        # 若脚本没有可执行位，用 bash 显式调用
+```
+
+停止脚本**按命令行特征匹配**（四个 jar 名与 chain-worker 的 `server.mjs`），不会误杀 IDE 里跑的其它 Java 程序；停止后逐个探测 8443 / 9441 / 9442 / 9443 / 9545 / 5173 并报告是否已释放。`.runtime` 下的加密数据库、账本、链数据与密钥都会保留，重新 `start` 即可继续。
+
+> `start.sh` 以前台方式运行并用 `trap` 管理子进程，因此在同一终端按 **Ctrl+C** 即可全部停止；`stop.sh` 用于终端被关闭、Shell 被强杀，或想在另一个终端停服务的场景。
+
 ### 1.4 IDEA 直接运行主类
 
 在 IDEA 打开根 `pom.xml`，Project SDK 选 JDK 17。先执行 `setup.mjs` 与 `package`，再为四个主类各建一个 Application 运行配置：
